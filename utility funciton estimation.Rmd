@@ -1,0 +1,63 @@
+---
+title: "Stage 1 Utility Function Estimation"
+author: "Wei-Lun, Lin"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(magrittr)
+library(stringr)
+```
+
+
+## Data Reading and Processing
+
+We first get raw data from folders of 2021, 2022 and 2023.
+The format of the data in 2021 is a little different from those in 2022 and 2023, 
+so we need to separate different cases.
+
+```{r get rawdata}
+# get rawdata from foldes of 2021-2023
+rawdata <- data.frame()
+files.dir <- list.files("./raw data", full.names=T)[-16]
+for (i in 1:length(files.dir)) {
+  path <- paste0(files.dir[i], "/rawData")
+  files <- list.files(path, pattern=".csv", full.names=T)
+  for (file in files) {
+    if (i < 7) sub.data <- read.csv(file)[, 1:247]
+    else sub.data <- read.csv(file)[, 2:248]
+    sub <- str_split(file, "/")[[1]][5] %>% substr(1, 10)
+    sub.data$sub <- sub
+    # print(sub)
+    rawdata <- rbind(rawdata, sub.data)
+  }
+}
+
+head(rawdata)
+```
+
+The extracted raw data contains action time points, values and choices.
+To note that, we do not need the time point data, so we remove them next.
+
+```{r remove RT data}
+col.target <- c(
+  seq(3, 247, 13), 
+  seq(4, 247, 13)
+) %>% 
+  sort()
+colnames(rawdata)[248] <- "Subject"
+rawdata <- rawdata[, c(248, col.target)]
+
+head(rawdata)
+```
+
+What we have now is value lists and choice lists.
+
+
+
+
+
+
+
