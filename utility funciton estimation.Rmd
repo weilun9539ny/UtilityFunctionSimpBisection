@@ -9,6 +9,7 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 library(magrittr)
 library(stringr)
+library(tidyverse)
 ```
 
 
@@ -53,8 +54,31 @@ rawdata <- rawdata[, c(248, col.target)]
 head(rawdata)
 ```
 
-What we have now is value lists and choice lists.
+What we have now is value lists and choice lists, but the elements are Python list stored as strings.
 
+```{r remove [] in string}
+rawdata <- rawdata %>% 
+  # head %>% 
+  mutate(
+    across(
+      -Subject,
+      ~ .x %>% 
+        str_remove_all("[\\[\\]]") %>% 
+        str_split(", ")
+    )
+  )
+write.csv(rawdata, "./rawdata.csv", row.names=F)
+```
+
+I remove all the "[]" in data and preprocess data in EXCEL manually.
+
+```{r re-read rawdata}
+rawdata <- read.csv("rawdata.csv")
+head(rawdata)
+```
+
+
+## Analysis
 
 
 
