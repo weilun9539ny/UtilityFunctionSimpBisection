@@ -47,43 +47,71 @@ head(rawdata)
 The extracted raw data contains action time points, values and choices.
 To note that, we do not need the time point data, so we remove them next.
 
-```{r remove RT data}
+```{r remove RT and add subj id}
 col.target <- c(
   seq(3, 247, 13), 
   seq(4, 247, 13)
 ) %>% 
   sort()
-colnames(rawdata)[248] <- "Subject"
+colnames(rawdata)[248] <- "subject"
 rawdata <- rawdata[, c(248, col.target)]
-
-head(rawdata)
-```
-
-What we have now is value lists and choice lists, but the elements are Python list stored as strings.
-
-```{r remove [] in string}
 rawdata <- rawdata %>% 
-  # head %>% 
   mutate(
-    across(
-      -Subject,
-      ~ .x %>% 
-        str_remove_all("[\\[\\]]") %>% 
-        str_split(", ")
-    )
-  )
-write.csv(rawdata, "./rawdata.csv", row.names=F)
-```
+    subj_id = row_number()
+  ) %>% 
+  relocate(subj_id)
 
-I removed all the "[]" in data, preprocessed data, and replaced choices with 1/0 in EXCEL manually.
-
-```{r re-read rawdata}
-rawdata <- read.csv("rawdata.csv") %>% 
-  mutate(
-    Subject_id = as.integer(factor(Subject))
-  )
 head(rawdata)
 ```
+
+Next, the cells in the dataset are strings of python list.
+For example, a possible element could be `"[1000, 800, 600, 400, 200, 100, None, None, 100]"`,
+or `"['A', 'B', 'B', 'A', 'A']"`.
+Thus, the strings should be convert into vector, and the excess information (the `100, None, None, 100`) should be removed.
+Finally, make the data be in long format, which helps further analysis.
+
+I use `fromJSON()` in package `jsonlite` to parse the string of list, and convert elements into vector.
+In this way, the data type could be automatically be determined by parser.
+
+```{r string parse}
+parse_list_string <- function(x) {
+  # replace '' and None
+  x <- gsub("None", "null", x)
+  x <- gsub("'", '"', x)
+  # parse the string
+  res <- jsonlite::fromJSON(x)
+  res <- if(length(res) == 0) NA else res
+  return(res)
+}
+
+remove_excess_info <- function(vec) {
+  vec[1:5]
+}
+
+rawdata <- rawdata %>% 
+  mutate(
+    across(-c(subj_id, subject), ~map(.x, parse_list_string)),  # make python list into R vector
+    across(ends_with("_list"), ~map(.x, remove_excess_info))  # make value list length be 5
+  ) %>% 
+  rowwise() %>% 
+  mutate(trial = list(1:5)) %>% 
+  relocate(trial, .after=subject) %>% 
+  unnest(c(trial, ends_with("_list"), ends_with("_choice_list"))) %>% 
+  ungroup()
+
+write.csv(rawdata, "./rawdata.csv", row.names=F)
+head(rawdata)
+```
+
+
+
+And we transform the data to be long data.
+
+```{r raw 2 long}
+
+```
+
+
 
 
 ## Analysis
