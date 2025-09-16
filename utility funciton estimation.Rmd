@@ -7,9 +7,14 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(magrittr)
+# library(magrittr)
 library(stringr)
 library(tidyverse)
+
+library(rstan)
+library(bayesplot)
+library(posterior)
+library(loo)
 ```
 
 
@@ -70,15 +75,102 @@ rawdata <- rawdata %>%
 write.csv(rawdata, "./rawdata.csv", row.names=F)
 ```
 
-I remove all the "[]" in data and preprocess data in EXCEL manually.
+I removed all the "[]" in data, preprocessed data, and replaced choices with 1/0 in EXCEL manually.
 
 ```{r re-read rawdata}
-rawdata <- read.csv("rawdata.csv")
+rawdata <- read.csv("rawdata.csv") %>% 
+  mutate(
+    Subject_id = as.integer(factor(Subject))
+  )
 head(rawdata)
 ```
 
 
 ## Analysis
+
+We ran MCMC to get the cumulative prospect theory (CPT) parameters.
+
+```{r}
+# Setup
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+
+stan_data <- list(
+  N   = nrow(df),
+  S   = length(unique(df$subject_id)),
+  subj = df$subject_id,
+  y    = as.integer(df$choice),
+  xA1  = as.numeric(df$xA1),
+  xA2  = as.numeric(df$xA2),
+  pA   = as.numeric(df$pA),
+  xB1  = as.numeric(df$xB1),
+  xB2  = as.numeric(df$xB2),
+  pB   = as.numeric(df$pB)
+)
+
+# Fit model
+fit <- stan(
+  file = "./hierarchical_CPT.stan",
+  data = stan_data,
+  chains = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 2025,
+  control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+```
+
+
+
+```{r}
+library(bayesplot)
+library(posterior)
+
+# Make sure rstan uses multiple cores
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+
+# Data preparation (example)
+# df should include: subject, choice (0/1), xA1, xA2, pA, xB1, xB2, pB
+
+df <- df %>% 
+  mutate(subject_id = as.integer(factor(subject)))
+
+df$subject_id <- as.integer(factor(df$subject))
+stan_data <- list(
+  N = nrow(df),
+  S = length(unique(df$subject_id)),
+  subj = df$subject_id,
+  y = as.integer(df$choice),
+  xA1 = as.numeric(df$xA1),
+  xA2 = as.numeric(df$xA2),
+  pA = as.numeric(df$pA),
+  xB1 = as.numeric(df$xB1),
+  xB2 = as.numeric(df$xB2),
+  pB = as.numeric(df$pB)
+)
+
+# Compile and sample
+fit <- stan(
+  file = "cpt_hierarchical.stan",  # path to Stan file (the code you have)
+  data = stan_data,
+  chains = 4,
+  iter = 2000,
+  warmup = 1000,
+  seed = 1234,
+  control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+
+print(fit, pars = c("mu_alpha","mu_beta","mu_gamma","mu_delta","mu_loglambda","mu_logphi"))
+
+# Posterior extraction
+posterior_draws <- extract(fit)
+
+# Posterior predictive check
+log_lik <- extract_log_lik(fit, parameter_name = "log_lik")
+loo_result <- loo::loo(log_lik)
+print(loo_result)
+```
 
 
 
