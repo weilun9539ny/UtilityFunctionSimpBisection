@@ -8,3 +8,5 @@ subj_trial_data.csv
 *.rds
 *cache/
 *files/
+*.png
+*.pdf

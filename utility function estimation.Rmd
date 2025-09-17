@@ -172,14 +172,12 @@ The subjective value of payoff $x$ is defined as
 
 $$
 v(x)=
-\begin{equation}
 \left\{
   \begin{aligned}
       &x^\alpha, &&\text{if}\ x \geq 0  \\
       &-\lambda(-x)^\beta, &&\text{if}\ x < 0,
   \end{aligned}
 \right.
-\end{equation}
 $$
 
 The probability weighting function (Tversky & Kahneman, 1992) considered in only 2 cases can be reduced to
@@ -240,7 +238,7 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
 stan_data <- df_long %>% 
-  slice(1:190) %>% 
+  slice(1:380) %>% 
   list(
     N   = nrow(.),
     S   = length(unique(.$subj_id)),
@@ -259,35 +257,38 @@ fit <- stan(
   file = "./hierarchical_CPT.stan",
   data = stan_data,
   chains = 4,
-  iter = 3000,
-  warmup = 500,
-  seed = 2025,
-  control = list(adapt_delta = 0.95, max_treedepth = 15)
+  iter = 4000,
+  warmup = 1000,
+  seed = 2025
+  # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
 ```
 
 
-```{r}
-params <- c("alpha[1]", "alpha[2]","beta[1]", "beta[2]","gamma[1]","delta[1]","lambda[1]","phi[1]")
-mcmc_trace(fit, pars = params) +
+```{r MCMC plots}
+params <- c(
+  paste0("alpha[", 1:4, "]"), paste0("beta[", 1:4, "]"), 
+  paste0("gamma[", 1:4, "]"), paste0("delta[", 1:4, "]"),
+  paste0("lambda[", 1:4, "]"), paste0("phi[", 1:4, "]")
+)
+mcmc_trace(fit, pars = params[17:24]) +
   labs(title = "Trace plot")
 
-mcmc_dens_overlay(fit, pars = params) +
+mcmc_dens_overlay(fit, pars = params[13:24]) +
   labs(title = "Posterior Densities")
 
 mcmc_intervals(
   fit, pars = params, 
-  point_est="mean", prob=.5, prob_outer = .95, rhat = 
+  point_est="mean", prob=.5, prob_outer = .95
 ) +
-  labs(
-    title = "Posterior Intervals"
-  )
+  geom_vline(xintercept=1, color="#AB1212") +
+  labs(title = "Posterior Intervals")
 ```
 
 
 
-```{r}
-print(fit, pars = c("alpha","beta","gamma","delta","lambda","phi"))
+```{r fit params}
+print(fit, pars = params)
 ```
 
 
