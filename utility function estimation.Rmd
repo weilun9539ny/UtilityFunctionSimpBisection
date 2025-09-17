@@ -42,26 +42,29 @@ for (i in 1:length(files.dir)) {
 }
 
 head(rawdata)
+# write.csv(rawdata, "./rawdata.csv", row.names=F)
 ```
 
 The extracted raw data contains action time points, values and choices.
 To note that, we do not need the time point data, so we remove them next.
 
 ```{r remove RT and add subj id}
+df <- read.csv("./rawdata.csv")
 col.target <- c(
   seq(3, 247, 13), 
-  seq(4, 247, 13)
+  seq(4, 247, 13),
+  seq(13, 247, 13)
 ) %>% 
   sort()
-colnames(rawdata)[248] <- "subject"
-rawdata <- rawdata[, c(248, col.target)]
-rawdata <- rawdata %>% 
+colnames(df)[248] <- "subject"
+df <- df[, c(248, col.target)]
+df <- df %>% 
   mutate(
     subj_id = row_number()
   ) %>% 
   relocate(subj_id)
 
-head(rawdata)
+head(df)
 ```
 
 Next, the cells in the dataset are strings of python list.
@@ -72,6 +75,7 @@ Finally, make the data be in long format, which helps further analysis.
 
 I use `fromJSON()` in package `jsonlite` to parse the string of list, and convert elements into vector.
 In this way, the data type could be automatically be determined by parser.
+And then make the data long.
 
 ```{r string parse}
 parse_list_string <- function(x) {
@@ -88,30 +92,57 @@ remove_excess_info <- function(vec) {
   vec[1:5]
 }
 
-rawdata <- rawdata %>% 
+trial_seq <- Vectorize(seq.default, vectorize.args = c("from", "to"))
+pos_seq <- trial_seq(from=26:30, to=91:95, by=10) %>% as.vector %>% sort
+neg_seq <- trial_seq(from=31:35, to=91:95, by=10) %>% as.vector %>% sort
+
+df_long <- df %>%
   mutate(
     across(-c(subj_id, subject), ~map(.x, parse_list_string)),  # make python list into R vector
     across(ends_with("_list"), ~map(.x, remove_excess_info))  # make value list length be 5
   ) %>% 
   rowwise() %>% 
-  mutate(trial = list(1:5)) %>% 
-  relocate(trial, .after=subject) %>% 
-  unnest(c(trial, ends_with("_list"), ends_with("_choice_list"))) %>% 
-  ungroup()
+  transmute(
+    subj_id = subj_id,
+    subject = subject,
+    trial = list(c(1:25, pos_seq, neg_seq)),
+    xA1 = list(c(
+      rep(2000, 10), rep(0, 10), rep(300, 5), 
+      rep(x1pos[[1]], 5), rep(x2pos[[1]], 5), rep(x3pos[[1]], 5), rep(x4pos[[1]], 5), rep(x5pos[[1]], 5), rep(x6pos[[1]], 5), rep(x7pos[[1]], 5),
+      rep(300, 35)
+    )),
+    xA2 = list(c(
+      L_list, rep(0, 5), rep(L[[1]], 5), rep(-300, 5), rep(0, 5), 
+      rep(-300, 35),
+      rep(x1neg[[1]], 5), rep(x2neg[[1]], 5), rep(x3neg[[1]], 5), rep(x4neg[[1]], 5), rep(x5neg[[1]], 5), rep(x6neg[[1]], 5), rep(x7neg[[1]], 5)
+    )),
+    pA = list(rep(.5, 95)),
+    xB1 = list(c(
+      rep(0, 5), x1pos_list, x1neg_list, rep(x1pos[[1]], 5), G2_list, 
+      x2pos_list, x3pos_list, x4pos_list, x5pos_list, x6pos_list, x7pos_list, x8pos_list,
+      rep(G2[[1]], 35)
+    )),
+    xB2 = list(c(
+      rep(0, 5), x1pos_list, x1neg_list, L2_list, rep(x1neg[[1]], 5), 
+      rep(L2[[1]], 35),
+      x2neg_list, x3neg_list, x4neg_list, x5neg_list, x6neg_list, x7neg_list, x8neg_list
+    )),
+    pB = list(rep(.5, 95)),
+    choice = list(c(
+      L_choice_list, x1pos_choice_list, x1neg_choice_list, L2_choice_list, G2_choice_list,
+      x2pos_choice_list, x3pos_choice_list, x4pos_choice_list, x5pos_choice_list, x6pos_choice_list, x7pos_choice_list, x8pos_choice_list,
+      x2neg_choice_list, x3neg_choice_list, x4neg_choice_list, x5neg_choice_list, x6neg_choice_list, x7neg_choice_list, x8neg_choice_list
+    ))
+  ) %>% 
+  # mutate(trial = list(1:5)) %>% 
+  # relocate(trial, .after=subject) %>% 
+  unnest(c(trial, starts_with("x"), starts_with("p"), choice)) %>% 
+  ungroup() %>% 
+  arrange(subj_id, trial)
 
-write.csv(rawdata, "./rawdata.csv", row.names=F)
-head(rawdata)
+head(df_long)
+write.csv(df_long, "./subj_trial_data.csv", row.names=F)
 ```
-
-
-
-And we transform the data to be long data.
-
-```{r raw 2 long}
-
-```
-
-
 
 
 ## Analysis
@@ -119,21 +150,24 @@ And we transform the data to be long data.
 We ran MCMC to get the cumulative prospect theory (CPT) parameters.
 
 ```{r}
+# read data
+df_long <- read.csv("subj_trial_data.csv")
+
 # Setup
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
 stan_data <- list(
-  N   = nrow(df),
-  S   = length(unique(df$subject_id)),
-  subj = df$subject_id,
-  y    = as.integer(df$choice),
-  xA1  = as.numeric(df$xA1),
-  xA2  = as.numeric(df$xA2),
-  pA   = as.numeric(df$pA),
-  xB1  = as.numeric(df$xB1),
-  xB2  = as.numeric(df$xB2),
-  pB   = as.numeric(df$pB)
+  N   = nrow(df_long),
+  S   = length(unique(df_long$subj_id)),
+  subj = df_long$subj_id,
+  y    = as.integer(df_long$choice),
+  xA1  = as.numeric(df_long$xA1),
+  xA2  = as.numeric(df_long$xA2),
+  pA   = as.numeric(df_long$pA),
+  xB1  = as.numeric(df_long$xB1),
+  xB2  = as.numeric(df_long$xB2),
+  pB   = as.numeric(df_long$pB)
 )
 
 # Fit model
