@@ -158,6 +158,75 @@ head(df_long)
 ```
 
 
+## Cumulative Prospect Theory (CPT)
+
+The subjective value $V$ of prospect $O$ can be determined by
+
+$$
+V(O)=\sum\pi(p_i)v(x_i)
+$$
+
+, where $\pi(\cdot)$ is the probability weighting function and $v(\cdot)$ is the value function.
+
+The subjective value of payoff $x$ is defined as
+
+$$
+v(x)=
+\begin{equation}
+\left\{
+  \begin{aligned}
+      &x^\alpha, &&\text{if}\ x \geq 0  \\
+      &-\lambda(-x)^\beta, &&\text{if}\ x < 0,
+  \end{aligned}
+\right.
+\end{equation}
+$$
+
+The probability weighting function (Tversky & Kahneman, 1992) considered in only 2 cases can be reduced to
+
+$$
+\pi(p_i)=\frac{p_i^c}{[p_i^c-(1-p_i)^c]^{1/c}}
+$$
+
+, with $c=\gamma$ for gains and $c=\delta$ for losses.
+A probability function is more S-shaped with smaller $c$.
+
+The logistic choice rule is
+
+$$
+p(A, B)=\frac{1}{1+\exp[\phi(V(B)-V(A))]}
+$$
+
+where $\phi>0$ is a sensitivity parameter.
+The choice behavior is more deterministic with larger $\phi$.
+
+To sum up, CPT has 6 parameters: $\alpha \in [0, 1]$, $\beta \in [0, 1]$, $\lambda \in (0, \infty)$, $\gamma \in [0, 1]$, $\delta \in [0, 1]$, and $\phi \in (0, \infty)$.
+
++ $\alpha$ quantifies the curvature of the subjective value function for gains;
++ $\beta$ quantifies the curvature of the subjective value function for losses;
++ $\lambda$ quantifies loss aversion;
++ $\gamma$ quantifies the shape of probability weighting function for gains;
++ $\delta$ quantifies the shape of probability weighting function for losses;
++ $\phi$ quantifies the extent to which choice behavior is guided by subjective values.
+
+### Parameter Setting
+
+Parameters $\alpha_i, \beta_i, \gamma_i$ and $\delta_i$ were first transformed to probit scale: 
+$\alpha_i^\phi = \Theta^{-1}(\alpha_i)$, $\beta_i^\phi = \Theta^{-1}(\beta_i)$, $\gamma_i^\phi = \Theta^{-1}(\gamma_i)$ and $\delta_i^\phi = \Theta^{-1}(\delta_i)$.
+Thus, $\alpha^\phi, \beta^\phi, \gamma^\phi, \delta^\phi \in \mathbb{R}$.
+
+Next, we assumed these subject-level parameters come from group-level normal distributions: 
+$\alpha^\phi_i \sim N(\mu^\alpha, \sigma^\alpha)$, $\beta^\phi_i \sim N(\mu^\beta, \sigma^\beta)$, $\gamma^\phi_i \sim N(\mu^\gamma, \sigma^\gamma)$, and $\delta^\phi_i \sim N(\mu^\delta, \sigma^\delta)$.
+
+Finally, we decided the priors to the group-level parameters:
+$\mu^\alpha \sim N(0, 1)$, $\mu^\beta \sim N(0, 1)$, $\mu^\gamma \sim N(0, 1)$, and $\mu^\delta \sim N(0, 1)$.
+$\sigma^\alpha \sim U(0, 10)$, $\sigma^\beta \sim U(0, 10)$, $\sigma^\gamma \sim U(0, 10)$, and $\sigma^\delta \sim U(0, 10)$.
+
+The two remaining parameters are $\lambda$ and $\phi$, which can only take positive value.
+We assumed they come from a lognormal distribution: $\lambda\sim LN(\mu^\lambda, \sigma^\lambda)$ and $\phi\sim LN(\mu^\phi, \sigma^\phi)$.
+Since we want $\lambda, \phi \in [0.1, 5]$, the hyperparameters are $\mu^\lambda\sim U(-2.3, 1.61)$, $\mu^\delta\sim U(-2.3, 1.61)$, $\sigma^\lambda\sim U(0, 1.13)$, and $\sigma^\delta\sim U(0, 1.13)$.
+
+
 ## Analysis
 
 We ran MCMC to get the cumulative prospect theory (CPT) parameters.
@@ -190,8 +259,8 @@ fit <- stan(
   file = "./hierarchical_CPT.stan",
   data = stan_data,
   chains = 4,
-  iter = 2000,
-  warmup = 1000,
+  iter = 3000,
+  warmup = 500,
   seed = 2025,
   control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
@@ -199,10 +268,20 @@ fit <- stan(
 
 
 ```{r}
-mcmc_trace(fit, pars = c("alpha[1]", "alpha[2]","beta[1]", "beta[2]","gamma[1]","delta[1]","lambda[1]","phi[1]")) +
+params <- c("alpha[1]", "alpha[2]","beta[1]", "beta[2]","gamma[1]","delta[1]","lambda[1]","phi[1]")
+mcmc_trace(fit, pars = params) +
   labs(title = "Trace plot")
-mcmc_dens_overlay(fit, pars = c("alpha[1]", "alpha[2]","beta[1]", "beta[2]","gamma[1]","delta[1]","lambda[1]","phi[1]")) +
+
+mcmc_dens_overlay(fit, pars = params) +
   labs(title = "Posterior Densities")
+
+mcmc_intervals(
+  fit, pars = params, 
+  point_est="mean", prob=.5, prob_outer = .95, rhat = 
+) +
+  labs(
+    title = "Posterior Intervals"
+  )
 ```
 
 
