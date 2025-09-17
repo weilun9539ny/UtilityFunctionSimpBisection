@@ -3,3 +3,8 @@
 .RData
 .Ruserdata
 raw data/
+rawdata.csv
+subj_trial_data.csv
+*.rds
+*cache/
+*files/

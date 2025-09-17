@@ -41,7 +41,7 @@ for (i in 1:length(files.dir)) {
   }
 }
 
-head(rawdata)
+head(rawdata[, 1:5])
 # write.csv(rawdata, "./rawdata.csv", row.names=F)
 ```
 
@@ -64,7 +64,7 @@ df <- df %>%
   ) %>% 
   relocate(subj_id)
 
-head(df)
+head(df[, 1:5])
 ```
 
 Next, the cells in the dataset are strings of python list.
@@ -141,7 +141,20 @@ df_long <- df %>%
   arrange(subj_id, trial)
 
 head(df_long)
-write.csv(df_long, "./subj_trial_data.csv", row.names=F)
+```
+
+Finally, we remove observations that subjects did not react.
+And change the name of choice "A" and "B" to 1 and 0.
+
+```{r drop na}
+dim(df_long)
+df_long <- df_long %>% 
+  drop_na() %>% 
+  mutate(choice = as.numeric(choice == "A"))
+
+dim(df_long)
+head(df_long)
+# write.csv(df_long, "./subj_trial_data.csv", row.names=F)
 ```
 
 
@@ -149,7 +162,7 @@ write.csv(df_long, "./subj_trial_data.csv", row.names=F)
 
 We ran MCMC to get the cumulative prospect theory (CPT) parameters.
 
-```{r}
+```{r MCMC for CRRA, cache=T}
 # read data
 df_long <- read.csv("subj_trial_data.csv")
 
@@ -157,18 +170,20 @@ df_long <- read.csv("subj_trial_data.csv")
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
-stan_data <- list(
-  N   = nrow(df_long),
-  S   = length(unique(df_long$subj_id)),
-  subj = df_long$subj_id,
-  y    = as.integer(df_long$choice),
-  xA1  = as.numeric(df_long$xA1),
-  xA2  = as.numeric(df_long$xA2),
-  pA   = as.numeric(df_long$pA),
-  xB1  = as.numeric(df_long$xB1),
-  xB2  = as.numeric(df_long$xB2),
-  pB   = as.numeric(df_long$pB)
-)
+stan_data <- df_long %>% 
+  slice(1:190) %>% 
+  list(
+    N   = nrow(.),
+    S   = length(unique(.$subj_id)),
+    subj = .$subj_id,
+    y    = as.integer(.$choice),
+    xA1  = as.numeric(.$xA1),
+    xA2  = as.numeric(.$xA2),
+    pA   = as.numeric(.$pA),
+    xB1  = as.numeric(.$xB1),
+    xB2  = as.numeric(.$xB2),
+    pB   = as.numeric(.$pB)
+  )
 
 # Fit model
 fit <- stan(
@@ -183,55 +198,17 @@ fit <- stan(
 ```
 
 
+```{r}
+mcmc_trace(fit, pars = c("alpha[1]", "alpha[2]","beta[1]", "beta[2]","gamma[1]","delta[1]","lambda[1]","phi[1]")) +
+  labs(title = "Trace plot")
+mcmc_dens_overlay(fit, pars = c("alpha[1]", "alpha[2]","beta[1]", "beta[2]","gamma[1]","delta[1]","lambda[1]","phi[1]")) +
+  labs(title = "Posterior Densities")
+```
+
+
 
 ```{r}
-library(bayesplot)
-library(posterior)
-
-# Make sure rstan uses multiple cores
-rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
-
-# Data preparation (example)
-# df should include: subject, choice (0/1), xA1, xA2, pA, xB1, xB2, pB
-
-df <- df %>% 
-  mutate(subject_id = as.integer(factor(subject)))
-
-df$subject_id <- as.integer(factor(df$subject))
-stan_data <- list(
-  N = nrow(df),
-  S = length(unique(df$subject_id)),
-  subj = df$subject_id,
-  y = as.integer(df$choice),
-  xA1 = as.numeric(df$xA1),
-  xA2 = as.numeric(df$xA2),
-  pA = as.numeric(df$pA),
-  xB1 = as.numeric(df$xB1),
-  xB2 = as.numeric(df$xB2),
-  pB = as.numeric(df$pB)
-)
-
-# Compile and sample
-fit <- stan(
-  file = "cpt_hierarchical.stan",  # path to Stan file (the code you have)
-  data = stan_data,
-  chains = 4,
-  iter = 2000,
-  warmup = 1000,
-  seed = 1234,
-  control = list(adapt_delta = 0.95, max_treedepth = 15)
-)
-
-print(fit, pars = c("mu_alpha","mu_beta","mu_gamma","mu_delta","mu_loglambda","mu_logphi"))
-
-# Posterior extraction
-posterior_draws <- extract(fit)
-
-# Posterior predictive check
-log_lik <- extract_log_lik(fit, parameter_name = "log_lik")
-loo_result <- loo::loo(log_lik)
-print(loo_result)
+print(fit, pars = c("alpha","beta","gamma","delta","lambda","phi"))
 ```
 
 
