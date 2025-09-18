@@ -7,14 +7,12 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-# library(magrittr)
-library(stringr)
 library(tidyverse)
 
 library(rstan)
 library(bayesplot)
 library(posterior)
-library(loo)
+# library(loo)
 ```
 
 
@@ -25,9 +23,9 @@ The format of the data in 2021 is a little different from those in 2022 and 2023
 so we need to separate different cases.
 
 ```{r get rawdata}
-# get rawdata from foldes of 2021-2023
+# get rawdata from folders of 2021-2023
 rawdata <- data.frame()
-files.dir <- list.files("./raw data", full.names=T)[-16]
+files.dir <- list.files("./data/raw_data", full.names=T)[-16]
 for (i in 1:length(files.dir)) {
   path <- paste0(files.dir[i], "/rawData")
   files <- list.files(path, pattern=".csv", full.names=T)
@@ -40,16 +38,20 @@ for (i in 1:length(files.dir)) {
     rawdata <- rbind(rawdata, sub.data)
   }
 }
+rm(i, sub.data, file, files, files.dir, path, sub)
 
+dim(rawdata)
 head(rawdata[, 1:5])
 # write.csv(rawdata, "./rawdata.csv", row.names=F)
 ```
+
+We have 165 subjects in total.
 
 The extracted raw data contains action time points, values and choices.
 To note that, we do not need the time point data, so we remove them next.
 
 ```{r remove RT and add subj id}
-df <- read.csv("./rawdata.csv")
+df <- read.csv("./data/preprocessed_data/rawdata.csv")
 col.target <- c(
   seq(3, 247, 13), 
   seq(4, 247, 13),
@@ -63,21 +65,27 @@ df <- df %>%
     subj_id = row_number()
   ) %>% 
   relocate(subj_id)
+rm(col.target)
 
 head(df[, 1:5])
 ```
 
-Next, the cells in the dataset are strings of python list.
-For example, a possible element could be `"[1000, 800, 600, 400, 200, 100, None, None, 100]"`,
-or `"['A', 'B', 'B', 'A', 'A']"`.
-Thus, the strings should be convert into vector, and the excess information (the `100, None, None, 100`) should be removed.
-Finally, make the data be in long format, which helps further analysis.
+As the part of the data showed above, there are several problems about the content of the data.
 
-I use `fromJSON()` in package `jsonlite` to parse the string of list, and convert elements into vector.
-In this way, the data type could be automatically be determined by parser.
-And then make the data long.
+ + Columns contain strings of list structure in Python. For example, a possible element could be `"[1000, 800, 600, 400, 200, 100, None, None, 100]"` or `"['A', 'B', 'B', 'A', 'A']"`. These strings should be convert to vectors.
+ + There are elements in lists that should be discard. For example, the 6th to 9th elements in value list have no corresponding choice data.
+ + The structure of the data frame should allow us to easily analysis the data. For example, each trial should be in a single row.
+ + The raw data contained only the value being measured, not all the outcomes of lotteries. Thus, the outcomes should be find out according to the experiment setting.
+ + Some subjects did not react to the lotteries in some trials, so there are no choice data in these trials. These trials should be discarded.
 
-```{r string parse}
+To convert the strings to value vectors, I used the `fromJSON()` function in package `jsonlite` to parse the string of list, and convert elements into vector.
+Besides, the function automatically detected the type of the elements, which was convenient.
+
+To discard some elements that will not be used, I simply take the top 5 elements in value vectors.
+
+To add additional experiment settings, I took value lists and added other outcomes manually row-wise.
+
+```{r to trial structure}
 parse_list_string <- function(x) {
   # replace '' and None
   x <- gsub("None", "null", x)
@@ -102,7 +110,7 @@ df_long <- df %>%
     across(ends_with("_list"), ~map(.x, remove_excess_info))  # make value list length be 5
   ) %>% 
   rowwise() %>% 
-  transmute(
+  transmute(  # add lottery outcomes
     subj_id = subj_id,
     subject = subject,
     trial = list(c(1:25, pos_seq, neg_seq)),
@@ -116,7 +124,6 @@ df_long <- df %>%
       rep(-300, 35),
       rep(x1neg[[1]], 5), rep(x2neg[[1]], 5), rep(x3neg[[1]], 5), rep(x4neg[[1]], 5), rep(x5neg[[1]], 5), rep(x6neg[[1]], 5), rep(x7neg[[1]], 5)
     )),
-    pA = list(rep(.5, 95)),
     xB1 = list(c(
       rep(0, 5), x1pos_list, x1neg_list, rep(x1pos[[1]], 5), G2_list, 
       x2pos_list, x3pos_list, x4pos_list, x5pos_list, x6pos_list, x7pos_list, x8pos_list,
@@ -127,35 +134,25 @@ df_long <- df %>%
       rep(L2[[1]], 35),
       x2neg_list, x3neg_list, x4neg_list, x5neg_list, x6neg_list, x7neg_list, x8neg_list
     )),
-    pB = list(rep(.5, 95)),
     choice = list(c(
       L_choice_list, x1pos_choice_list, x1neg_choice_list, L2_choice_list, G2_choice_list,
       x2pos_choice_list, x3pos_choice_list, x4pos_choice_list, x5pos_choice_list, x6pos_choice_list, x7pos_choice_list, x8pos_choice_list,
       x2neg_choice_list, x3neg_choice_list, x4neg_choice_list, x5neg_choice_list, x6neg_choice_list, x7neg_choice_list, x8neg_choice_list
     ))
-  ) %>% 
-  # mutate(trial = list(1:5)) %>% 
-  # relocate(trial, .after=subject) %>% 
-  unnest(c(trial, starts_with("x"), starts_with("p"), choice)) %>% 
+  ) %>%
+  unnest(c(trial, starts_with("x"), choice)) %>%   # 1 row 1 trial
   ungroup() %>% 
-  arrange(subj_id, trial)
-
-head(df_long)
-```
-
-Finally, we remove observations that subjects did not react.
-And change the name of choice "A" and "B" to 1 and 0.
-
-```{r drop na}
-dim(df_long)
-df_long <- df_long %>% 
+  arrange(subj_id, trial) %>% 
   drop_na() %>% 
-  mutate(choice = as.numeric(choice == "A"))
+  mutate(choice = as.integer(choice == "A"))
+
+# df_long %>% write.csv("./data/preprocessed_data/subj_trial_data.csv", row.names=F)
 
 dim(df_long)
 head(df_long)
-# write.csv(df_long, "./subj_trial_data.csv", row.names=F)
 ```
+
+We had 165 subjects, and each subject underwent up to 95 trials.
 
 
 ## Cumulative Prospect Theory (CPT)
@@ -188,6 +185,8 @@ $$
 
 , with $c=\gamma$ for gains and $c=\delta$ for losses.
 A probability function is more S-shaped with smaller $c$.
+However, the setting of our experiment made every probabilities of outcomes be $0.5$.
+Thus, we removed the probability weighting part from our model, and set $\pi(0.5)=0.5$.
 
 The logistic choice rule is
 
@@ -198,63 +197,59 @@ $$
 where $\phi>0$ is a sensitivity parameter.
 The choice behavior is more deterministic with larger $\phi$.
 
-To sum up, CPT has 6 parameters: $\alpha \in [0, 1]$, $\beta \in [0, 1]$, $\lambda \in (0, \infty)$, $\gamma \in [0, 1]$, $\delta \in [0, 1]$, and $\phi \in (0, \infty)$.
+To sum up, CPT has 6 parameters: $\alpha \in [0, 1]$, $\beta \in [0, 1]$, $\lambda \in (0, \infty)$ and $\phi \in (0, \infty)$.
 
 + $\alpha$ quantifies the curvature of the subjective value function for gains;
 + $\beta$ quantifies the curvature of the subjective value function for losses;
 + $\lambda$ quantifies loss aversion;
-+ $\gamma$ quantifies the shape of probability weighting function for gains;
-+ $\delta$ quantifies the shape of probability weighting function for losses;
 + $\phi$ quantifies the extent to which choice behavior is guided by subjective values.
+
 
 ### Parameter Setting
 
-Parameters $\alpha_i, \beta_i, \gamma_i$ and $\delta_i$ were first transformed to probit scale: 
-$\alpha_i^\phi = \Theta^{-1}(\alpha_i)$, $\beta_i^\phi = \Theta^{-1}(\beta_i)$, $\gamma_i^\phi = \Theta^{-1}(\gamma_i)$ and $\delta_i^\phi = \Theta^{-1}(\delta_i)$.
-Thus, $\alpha^\phi, \beta^\phi, \gamma^\phi, \delta^\phi \in \mathbb{R}$.
+Parameters $\alpha_i$ and $\beta_i$ were first transformed to probit scale: 
+$\alpha_i^\phi = \Theta^{-1}(\alpha_i)$ and $\beta_i^\phi = \Theta^{-1}(\beta_i)$.
+Thus, $\alpha^\phi, \beta^\phi \in \mathbb{R}$.
 
 Next, we assumed these subject-level parameters come from group-level normal distributions: 
-$\alpha^\phi_i \sim N(\mu^\alpha, \sigma^\alpha)$, $\beta^\phi_i \sim N(\mu^\beta, \sigma^\beta)$, $\gamma^\phi_i \sim N(\mu^\gamma, \sigma^\gamma)$, and $\delta^\phi_i \sim N(\mu^\delta, \sigma^\delta)$.
+$\alpha^\phi_i \sim N(\mu^\alpha, \sigma^\alpha)$ and $\beta^\phi_i \sim N(\mu^\beta, \sigma^\beta)$.
 
 Finally, we decided the priors to the group-level parameters:
-$\mu^\alpha \sim N(0, 1)$, $\mu^\beta \sim N(0, 1)$, $\mu^\gamma \sim N(0, 1)$, and $\mu^\delta \sim N(0, 1)$.
-$\sigma^\alpha \sim U(0, 10)$, $\sigma^\beta \sim U(0, 10)$, $\sigma^\gamma \sim U(0, 10)$, and $\sigma^\delta \sim U(0, 10)$.
+$\mu^\alpha \sim N(0, 1)$, $\mu^\beta \sim N(0, 1)$, $\sigma^\alpha \sim U(0, 10)$ and $\sigma^\beta \sim U(0, 10)$.
 
 The two remaining parameters are $\lambda$ and $\phi$, which can only take positive value.
 We assumed they come from a lognormal distribution: $\lambda\sim LN(\mu^\lambda, \sigma^\lambda)$ and $\phi\sim LN(\mu^\phi, \sigma^\phi)$.
-Since we want $\lambda, \phi \in [0.1, 5]$, the hyperparameters are $\mu^\lambda\sim U(-2.3, 1.61)$, $\mu^\delta\sim U(-2.3, 1.61)$, $\sigma^\lambda\sim U(0, 1.13)$, and $\sigma^\delta\sim U(0, 1.13)$.
+Since we want $\lambda, \phi \in [0.1, 5]$, the hyper-parameters are $\mu^\lambda\sim U(-2.3, 1.61)$, $\mu^\phi \sim U(-2.3, 1.61)$, $\sigma^\lambda\sim U(0, 1.13)$, and $\sigma^\phi \sim U(0, 1.13)$.
 
 
-## Analysis
+## CPT Fitting with MCMC
 
 We ran MCMC to get the cumulative prospect theory (CPT) parameters.
 
 ```{r MCMC for CRRA, cache=T}
 # read data
-df_long <- read.csv("subj_trial_data.csv")
+df_long <- read.csv("./data/preprocessed_data/subj_trial_data.csv")
 
 # Setup
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
-stan_data <- df_long %>% 
-  slice(1:380) %>% 
+stan_data <- df_long %>%
+  filter(subj_id %in% 1:4) %>%   # sample the top 4 subjects
   list(
-    N   = nrow(.),
-    S   = length(unique(.$subj_id)),
+    N    = nrow(.),
+    S    = length(unique(.$subj_id)),
     subj = .$subj_id,
-    y    = as.integer(.$choice),
-    xA1  = as.numeric(.$xA1),
-    xA2  = as.numeric(.$xA2),
-    pA   = as.numeric(.$pA),
-    xB1  = as.numeric(.$xB1),
-    xB2  = as.numeric(.$xB2),
-    pB   = as.numeric(.$pB)
+    y    = .$choice,
+    xA1  = .$xA1,
+    xA2  = .$xA2,
+    xB1  = .$xB1,
+    xB2  = .$xB2
   )
 
 # Fit model
 fit <- stan(
-  file = "./hierarchical_CPT.stan",
+  file = "./hierarchical_CPT_no_prob_weight.stan",
   data = stan_data,
   chains = 4,
   iter = 4000,
@@ -268,13 +263,12 @@ fit <- stan(
 ```{r MCMC plots}
 params <- c(
   paste0("alpha[", 1:4, "]"), paste0("beta[", 1:4, "]"), 
-  paste0("gamma[", 1:4, "]"), paste0("delta[", 1:4, "]"),
   paste0("lambda[", 1:4, "]"), paste0("phi[", 1:4, "]")
 )
-mcmc_trace(fit, pars = params[17:24]) +
+mcmc_trace(fit, pars = params) +
   labs(title = "Trace plot")
 
-mcmc_dens_overlay(fit, pars = params[13:24]) +
+mcmc_dens_overlay(fit, pars = params) +
   labs(title = "Posterior Densities")
 
 mcmc_intervals(
@@ -290,9 +284,4 @@ mcmc_intervals(
 ```{r fit params}
 print(fit, pars = params)
 ```
-
-
-
-
-
 
