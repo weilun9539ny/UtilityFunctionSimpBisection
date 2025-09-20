@@ -234,8 +234,9 @@ df_long <- read.csv("./data/preprocessed_data/subj_trial_data.csv")
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
+n <- 20  # take top n subjects
 stan_data <- df_long %>%
-  filter(subj_id %in% 1:4) %>%   # sample the top 4 subjects
+  filter(subj_id %in% 1:n) %>%
   list(
     N    = nrow(.),
     S    = length(unique(.$subj_id)),
@@ -260,28 +261,26 @@ fit <- stan(
 ```
 
 
-```{r MCMC plots}
+```{r MCMC fit result}
 params <- c(
-  paste0("alpha[", 1:4, "]"), paste0("beta[", 1:4, "]"), 
-  paste0("lambda[", 1:4, "]"), paste0("phi[", 1:4, "]")
+  paste0("alpha[", 1:n, "]"), paste0("beta[", 1:n, "]"),
+  paste0("lambda[", 1:n, "]"), paste0("phi[", 1:n, "]")
 )
-mcmc_trace(fit, pars = params) +
-  labs(title = "Trace plot")
 
-mcmc_dens_overlay(fit, pars = params) +
-  labs(title = "Posterior Densities")
-
-mcmc_intervals(
-  fit, pars = params, 
-  point_est="mean", prob=.5, prob_outer = .95
-) +
-  geom_vline(xintercept=1, color="#AB1212") +
-  labs(title = "Posterior Intervals")
-```
-
-
-
-```{r fit params}
 print(fit, pars = params)
+
+# mcmc_trace(fit, pars = params) +
+  # labs(title = "Trace plot")
+
+# mcmc_dens_overlay(fit, pars = params) +
+  # labs(title = "Posterior Densities")
+
+# mcmc_intervals(
+  # fit, pars = params, 
+  # point_est="mean", prob=.5, prob_outer = .95
+# ) +
+  # geom_vline(xintercept=1, color="#AB1212") +
+  # labs(title = "Posterior Intervals")
 ```
+
 

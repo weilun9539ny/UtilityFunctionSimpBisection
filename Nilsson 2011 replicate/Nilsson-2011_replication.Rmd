@@ -1,0 +1,17 @@
+---
+title: "Nilsson et al., 2011 Simulation"
+author: "Wei-Lun, Lin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Study 1: Parameter Recover
+
+Use CPT to generate 3 sets of choice data, each set containing 30 synthetic subjects that undergo 60 pairs of mixed gambles.
+The generative parameter values for each synthetic subject were set to the value provided by Tversky and Kahneman (1992): $\alpha=.88, \beta=.88, \gamma=.61, \delta=.69$ and $\lambda=2.25$.
+The 3 levels of sensitivity parameter $\phi$ were $\phi=.04$(high noise), $\phi=.14$(medium noise), and $\phi=.40$(low noise).
