@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(rstan)
 ```
 
 
@@ -17,8 +18,8 @@ The study analyzed the data from study 2 in Rieskamp (2008).
 The study featured 30 participants, each of which was confronted with a series of 180 pairs of gambles. (60 gains, 60 losses, 60 mixed).
 
 ```{r read Rieskamp data}
-gambles <- read.csv("./Rieskamp_2008_gamble.csv")[, 1:9]
-choices <- read.csv("./Rieskamp_2008_choice.csv")[, -2]
+gambles <- read.csv("./Nilsson-2011_replication/Rieskamp_2008_gamble.csv")[, 1:9]
+choices <- read.csv("./Nilsson-2011_replication/Rieskamp_2008_choice.csv")[, -2]
 
 head(gambles)
 head(choices)
@@ -71,8 +72,9 @@ head(df)
 
 Nilsson estimated posterior distributions based on a total of 50000 MCMC samples from 3 chainsk after a burn-in of 1000 samples and after subsampling such that only every 10th sample was recorded.
 
+Full model:
 
-```{r}
+```{r full model}
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
@@ -91,21 +93,43 @@ Rieskamp_stan_data <- df %>%
   )
 
 # Fit model
-fit <- stan(
+fit.full <- stan(
   file = "./hierarchical_CPT.stan",
-  data = stan_data,
-  chains = 4,
-  iter = 4000,
+  data = Rieskamp_stan_data,
+  chains = 3,
+  iter = 17666,
   warmup = 1000,
+  # thin = 10,
   seed = 2025
-  # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
+
+saveRDS(fit.full, file = "./Nilsson-2011_fit-full.rds")
 ```
 
 
+Restricted model: $\alpha=\beta$
 
+```{r restricted model}
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+
+# Fit model
+fit.restricted <- stan(
+  file = "./hierarchical_CPT_restricted.stan",
+  data = Rieskamp_stan_data,
+  chains = 3,
+  iter = 17666,
+  warmup = 1000,
+  # thin = 10,
+  seed = 2025
+)
+
+saveRDS(fit.restricted, file = "./Nilsson-2011_fit-restricted.rds")
+```
 
 
 Use CPT to generate 3 sets of choice data, each set containing 30 synthetic subjects that undergo 60 pairs of mixed gambles.
 The generative parameter values for each synthetic subject were set to the value provided by Tversky and Kahneman (1992): $\alpha=.88, \beta=.88, \gamma=.61, \delta=.69$ and $\lambda=2.25$.
 The 3 levels of sensitivity parameter $\phi$ were $\phi=.04$(high noise), $\phi=.14$(medium noise), and $\phi=.40$(low noise).
+
+
