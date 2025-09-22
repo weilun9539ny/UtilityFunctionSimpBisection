@@ -63,6 +63,8 @@ df <- gambles %>%
   mutate(subj_id = gsub("subj-*", "", subj_id) %>% as.numeric()) %>% 
   arrange(subj_id)
 
+# write.csv(df, "./Rieskamp_subj-trial_data.csv", row.names=F)
+
 dim(df)
 head(df)
 ```
@@ -77,6 +79,8 @@ Full model:
 ```{r full model}
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
+
+df <- read.csv("./Rieskamp_subj-trial_data.csv")
 
 Rieskamp_stan_data <- df %>%
   list(
