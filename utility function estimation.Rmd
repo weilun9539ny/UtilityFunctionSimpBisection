@@ -249,7 +249,7 @@ stan_data <- df_long %>%
   )
 
 # Fit model
-fit <- stan(
+fit_full <- stan(
   file = "./hierarchical_CPT_no_prob_weight.stan",
   data = stan_data,
   chains = 4,
@@ -258,6 +258,19 @@ fit <- stan(
   seed = 2025
   # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
+
+fit_rest <- stan(
+  file = "./hierarchical_CPT_no_prob_weight_restricted.stan",
+  data = stan_data,
+  chains = 4,
+  iter = 4000,
+  warmup = 1000,
+  seed = 2025
+  # control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+
+saveRDS(fit_full, file="./res/CPT_full-0924.rds")
+saveRDS(fit_restricted, file="./res/CPT_restricted-0924.rds")
 ```
 
 
