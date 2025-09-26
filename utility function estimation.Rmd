@@ -270,17 +270,18 @@ fit_rest <- stan(
 )
 
 saveRDS(fit_full, file="./res/CPT_full-0924.rds")
-saveRDS(fit_restricted, file="./res/CPT_restricted-0924.rds")
+saveRDS(fit_rest, file="./res/CPT_restricted-0924.rds")
 ```
 
 
 ```{r MCMC fit result}
-params <- c(
+params_full <- c(
   paste0("alpha[", 1:n, "]"), paste0("beta[", 1:n, "]"),
-  paste0("lambda[", 1:n, "]"), paste0("phi[", 1:n, "]")
+  paste0("lambda[", 1:n, "]"), paste0("phi[", 1:n, "]"),
+  "mu_alpha", "mu_beta", "mu_loglambda", "mu_logphi"
 )
 
-print(fit, pars = params)
+print(fit_full, pars = params_full)
 
 # mcmc_trace(fit, pars = params) +
   # labs(title = "Trace plot")
@@ -294,6 +295,16 @@ print(fit, pars = params)
 # ) +
   # geom_vline(xintercept=1, color="#AB1212") +
   # labs(title = "Posterior Intervals")
+```
+
+
+```{r}
+params_rest <- c(
+  paste0("alpha[", 1:n, "]"), paste0("lambda[", 1:n, "]"), paste0("phi[", 1:n, "]"),
+  "mu_alpha", "mu_loglambda", "mu_logphi"
+)
+
+print(fit_rest, pars = params_rest)
 ```
 
 
