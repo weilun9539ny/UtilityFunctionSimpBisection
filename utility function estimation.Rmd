@@ -222,21 +222,26 @@ We assumed they come from a lognormal distribution: $\lambda\sim LN(\mu^\lambda,
 Since we want $\lambda, \phi \in [0.1, 5]$, the hyper-parameters are $\mu^\lambda\sim U(-2.3, 1.61)$, $\mu^\phi \sim U(-2.3, 1.61)$, $\sigma^\lambda\sim U(0, 1.13)$, and $\sigma^\phi \sim U(0, 1.13)$.
 
 
-## CPT Fitting with MCMC
+## CPT Model Fitting with MCMC
 
 We ran MCMC to get the cumulative prospect theory (CPT) parameters.
 
-```{r MCMC for CRRA, cache=T}
+However, we now have 3 models whose restrictions are different.
+We have:
+
++ The full model whose parameters are $\alpha, \beta, \lambda, \phi$,
++ The first restricted model whose parameters are $\alpha, \beta, \lambda, \phi$, where $\alpha=\beta$,
++ The second restricted model whose parameters are $\alpha, \beta, \phi$. ($\lambda$ is removed)
+
+```{r MCMC setting and data}
 # read data
-df_long <- read.csv("./data/preprocessed_data/subj_trial_data.csv")
+subj_trial_df <- read.csv("./data/preprocessed_data/subj_trial_data.csv")
 
 # Setup
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
-n <- 20  # take top n subjects
-stan_data <- df_long %>%
-  filter(subj_id %in% 1:n) %>%
+stan_data <- subj_trial_df %>%
   list(
     N    = nrow(.),
     S    = length(unique(.$subj_id)),
@@ -247,34 +252,66 @@ stan_data <- df_long %>%
     xB1  = .$xB1,
     xB2  = .$xB2
   )
-
-# Fit model
-fit_full <- stan(
-  file = "./hierarchical_CPT_no_prob_weight.stan",
-  data = stan_data,
-  chains = 4,
-  iter = 4000,
-  warmup = 1000,
-  seed = 2025
-  # control = list(adapt_delta = 0.95, max_treedepth = 15)
-)
-
-fit_rest <- stan(
-  file = "./hierarchical_CPT_no_prob_weight_restricted.stan",
-  data = stan_data,
-  chains = 4,
-  iter = 4000,
-  warmup = 1000,
-  seed = 2025
-  # control = list(adapt_delta = 0.95, max_treedepth = 15)
-)
-
-saveRDS(fit_full, file="./res/CPT_full-0924.rds")
-saveRDS(fit_rest, file="./res/CPT_restricted-0924.rds")
 ```
 
 
-```{r MCMC fit result}
+### Full Model
+
+```{r CPT full model, cache=T}
+# Fit model
+fit_full <- stan(
+  file = "./CPT_model/hierarchical_CPT_full.stan",
+  data = stan_data,
+  chains = 4,
+  iter = 1e4,
+  warmup = 1000,
+  seed = 2025
+  # control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+
+saveRDS(fit_full, file="./res/CPT_full_c-4_ite-1e4_warm-1e3.rds")
+# summary(fit_full)
+```
+
+
+### Restricted Model 1: $\alpha=\beta$
+
+```{r CPT alpha=beta}
+fit_alpha.lambda <- stan(
+  file = "./CPT_model/hierarchical_CPT_alpha-lambda.stan",
+  data = stan_data,
+  chains = 4,
+  iter = 1e4,
+  warmup = 1000,
+  seed = 2025
+  # control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+
+saveRDS(fit_alpha.lambda, file="./res/CPT_alpha-lambda_c-4_ite-1e4_warm-1e3.rds")
+```
+
+
+### Restricted Model 2: No $\lambda$
+
+```{r CPT no lambda}
+fit_no.lambda <- stan(
+  file = "./CPT_model/hierarchical_CPT_no-lambda.stan",
+  data = stan_data,
+  chains = 4,
+  iter = 1e4,
+  warmup = 1000,
+  seed = 2025
+  # control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+
+saveRDS(fit_alpha.lambda, file="./res/CPT_no-lambda_c-4_ite-1e4_warm-1e3.rds")
+```
+
+
+
+### Model Fitting Results
+
+```{r}
 params_full <- c(
   paste0("alpha[", 1:n, "]"), paste0("beta[", 1:n, "]"),
   paste0("lambda[", 1:n, "]"), paste0("phi[", 1:n, "]"),
@@ -282,19 +319,6 @@ params_full <- c(
 )
 
 print(fit_full, pars = params_full)
-
-# mcmc_trace(fit, pars = params) +
-  # labs(title = "Trace plot")
-
-# mcmc_dens_overlay(fit, pars = params) +
-  # labs(title = "Posterior Densities")
-
-# mcmc_intervals(
-  # fit, pars = params, 
-  # point_est="mean", prob=.5, prob_outer = .95
-# ) +
-  # geom_vline(xintercept=1, color="#AB1212") +
-  # labs(title = "Posterior Intervals")
 ```
 
 
