@@ -72,7 +72,7 @@ head(df)
 
 ## MCMC
 
-Nilsson estimated posterior distributions based on a total of 50000 MCMC samples from 3 chainsk after a burn-in of 1000 samples and after subsampling such that only every 10th sample was recorded.
+Nilsson estimated posterior distributions based on a total of 50000 MCMC samples from 3 chains after a burn-in of 1000 samples and after subsampling such that only every 10th sample was recorded.
 
 Full model:
 
