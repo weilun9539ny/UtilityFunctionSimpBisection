@@ -1,5 +1,5 @@
-// Hierarchical Bayesian CPT model in Stan
-// Converted from Nilsson et al. (2011) WinBUGS implementation
+// Restricted Hierarchical Bayesian CPT model in Stan
+// Converted from hierarchical_CPT_full.stan with removing prior of beta and replacing all the beta with alpha
 
 // ---------- Stan code ----------
 
@@ -19,14 +19,12 @@ data {
 parameters {
   // subject-level parameters (on transformed scales)
   vector[S] alpha_phi;   // probit-transformed α (0–1)
-  vector[S] beta_phi;    // probit-transformed β (0–1)
 
   vector[S] log_lambda;  // log λ (loss aversion)
   vector[S] log_phi;     // log φ (sensitivity)
 
   // group-level means and sds
   real mu_alpha; real<lower=0> sigma_alpha;
-  real mu_beta;  real<lower=0> sigma_beta;
 
   real mu_loglambda; real<lower=0> sigma_loglambda;
   real mu_logphi;    real<lower=0> sigma_logphi;
@@ -35,13 +33,11 @@ parameters {
 transformed parameters {
   // transform to original scales
   vector<lower=0,upper=1>[S] alpha;
-  vector<lower=0,upper=1>[S] beta;
   vector<lower=0>[S] lambda;
   vector<lower=0>[S] phi;
 
   for (s in 1:S) {
     alpha[s]  = Phi(alpha_phi[s]);
-    beta[s]   = Phi(beta_phi[s]);
     lambda[s] = exp(log_lambda[s]);
     phi[s]    = exp(log_phi[s]);
   }
@@ -50,10 +46,8 @@ transformed parameters {
 model {
   // ----- Hyperpriors -----
   mu_alpha ~ normal(0,1);
-  mu_beta  ~ normal(0,1);
 
   sigma_alpha ~ uniform(0,10);
-  sigma_beta  ~ uniform(0,10);
 
   mu_loglambda ~ uniform(-2.30,1.61);   // corresponds to λ ~ [0.1,5]
   mu_logphi    ~ uniform(-2.30,1.61);   // corresponds to φ ~ [0.1,5]
@@ -62,7 +56,6 @@ model {
 
   // ----- Subject-level priors -----
   alpha_phi ~ normal(mu_alpha, sigma_alpha);
-  beta_phi  ~ normal(mu_beta, sigma_beta);
 
   log_lambda ~ normal(mu_loglambda, sigma_loglambda);
   log_phi    ~ normal(mu_logphi, sigma_logphi);
@@ -72,13 +65,13 @@ model {
     int t1 = T1[s]; int t2 = T2[s];
     for (n in t1:t2) {
       // subjective values for outcomes A
-      real vA1 = (xA1[n] >= 0) ? pow(xA1[n], alpha[s]) : -lambda[s] * pow(-xA1[n], beta[s]);
-      real vA2 = (xA2[n] >= 0) ? pow(xA2[n], alpha[s]) : -lambda[s] * pow(-xA2[n], beta[s]);
+      real vA1 = (xA1[n] >= 0) ? pow(xA1[n], alpha[s]) : -lambda[s] * pow(-xA1[n], alpha[s]);
+      real vA2 = (xA2[n] >= 0) ? pow(xA2[n], alpha[s]) : -lambda[s] * pow(-xA2[n], alpha[s]);
       real VA = 0.5 * (vA1 + vA2);
 
       // subjective values for outcomes B
-      real vB1 = (xB1[n] >= 0) ? pow(xB1[n], alpha[s]) : -lambda[s] * pow(-xB1[n], beta[s]);
-      real vB2 = (xB2[n] >= 0) ? pow(xB2[n], alpha[s]) : -lambda[s] * pow(-xB2[n], beta[s]);
+      real vB1 = (xB1[n] >= 0) ? pow(xB1[n], alpha[s]) : -lambda[s] * pow(-xB1[n], alpha[s]);
+      real vB2 = (xB2[n] >= 0) ? pow(xB2[n], alpha[s]) : -lambda[s] * pow(-xB2[n], alpha[s]);
       real VB = 0.5 * (vB1 + vB2);
 
       // choice likelihood
@@ -92,12 +85,12 @@ generated quantities {
   for (s in 1:S) {
     int t1 = T1[s]; int t2 = T2[s];
     for (n in t1:t2) {
-      real vA1 = (xA1[n] >= 0) ? pow(xA1[n], alpha[s]) : -lambda[s] * pow(-xA1[n], beta[s]);
-      real vA2 = (xA2[n] >= 0) ? pow(xA2[n], alpha[s]) : -lambda[s] * pow(-xA2[n], beta[s]);
+      real vA1 = (xA1[n] >= 0) ? pow(xA1[n], alpha[s]) : -lambda[s] * pow(-xA1[n], alpha[s]);
+      real vA2 = (xA2[n] >= 0) ? pow(xA2[n], alpha[s]) : -lambda[s] * pow(-xA2[n], alpha[s]);
       real VA = 0.5 * (vA1 + vA2);
 
-      real vB1 = (xB1[n] >= 0) ? pow(xB1[n], alpha[s]) : -lambda[s] * pow(-xB1[n], beta[s]);
-      real vB2 = (xB2[n] >= 0) ? pow(xB2[n], alpha[s]) : -lambda[s] * pow(-xB2[n], beta[s]);
+      real vB1 = (xB1[n] >= 0) ? pow(xB1[n], alpha[s]) : -lambda[s] * pow(-xB1[n], alpha[s]);
+      real vB2 = (xB2[n] >= 0) ? pow(xB2[n], alpha[s]) : -lambda[s] * pow(-xB2[n], alpha[s]);
       real VB = 0.5 * (vB1 + vB2);
 
       log_lik[n] = bernoulli_logit_lpmf(y[n] | phi[s] * (VA - VB));

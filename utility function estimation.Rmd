@@ -7,6 +7,7 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
 library(tidyverse)
 
 library(rstan)
@@ -144,8 +145,8 @@ preproc_data <- rawdata %>%
   unnest(c(trial, starts_with("x"), choice)) %>%   # 1 row 1 trial
   ungroup() %>% 
   arrange(subj_id, trial) %>% 
-  drop_na() %>%   # remove rows that did not response
   mutate(choice = as.integer(choice == "A"))  # make "choose A" as 1
+  drop_na() %>%   # remove rows that did not response
 
 # preproc_data %>% write.csv("./data/preprocessed_data/preproc_data.csv", row.names=F)
 
@@ -169,6 +170,18 @@ preproc_data.2021$subject %>% unique()
 
 # preproc_data.2021 %>% write.csv("./data/preprocessed_data/preproc_data-2021.csv", row.names=F)
 ```
+
+Besides, we were wondering if the last decisions of each value (i.e., $x_1^+$) are representative.
+Thus, we took out every 5th trials.
+As for those who did not response to these trials, we took the second last decision.
+
+```{r last-points}
+preproc_data.2021.last <- preproc_data.2021 %>% 
+  filter(trial %in% seq(5, 95, 5))
+
+# preproc_data.2021.last %>% write.csv("./data/preprocessed_data/preproc_data-2021-last.csv", row.names=F)
+```
+
 
 
 ## Cumulative Prospect Theory (CPT)
@@ -249,7 +262,7 @@ We have:
 + The first restricted model whose parameters are $\alpha, \beta, \lambda, \phi$, where $\alpha=\beta$,
 + The second restricted model whose parameters are $\alpha, \beta, \phi$. ($\lambda$ is removed)
 
-```{r MCMC setting and data}
+```{r MCMC-setting}
 # read data
 preproc_data.2021 <- read.csv("./data/preprocessed_data/preproc_data-2021.csv")
 
@@ -258,12 +271,18 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
 # n <- 10
-stan_data <- subj_trial_df %>%
+n.trial <- preproc_data.2021 %>%
+  count(subject)
+trial.end <- cumsum(n.trial$n)
+trial.start <- c(1, trial.end[-87] + 1)
+
+stan_data <- preproc_data.2021 %>%
   # filter(subj_id %in% 1:n) %>% 
   list(
     N    = nrow(.),
     S    = length(unique(.$subj_id)),
-    subj = .$subj_id,
+    T1   = trial.start,
+    T2   = trial.end,
     y    = .$choice,
     xA1  = .$xA1,
     xA2  = .$xA2,
@@ -281,14 +300,14 @@ fit_full <- stan(
   file = "./CPT_model/hierarchical_CPT_full.stan",
   data = stan_data,
   chains = 4,
-  iter = 1e4,
+  iter = 5e3,
   warmup = 1000,
   seed = 2025
   # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
 
-saveRDS(fit_full, file="./res/CPT_full_c-4_ite-1e4_warm-1e3.rds")
-# fit_full <- readRDS(file="./res/CPT_full_c-4_ite-1e4_warm-1e3.rds")
+# saveRDS(fit_full, file="./res/CPT_full_c-4_ite-5e3_warm-1e3.rds")
+# fit_full <- readRDS(file="./res/CPT_full_c-4_ite-5e3_warm-1e3.rds")
 # summary(fit_full)
 ```
 
@@ -296,18 +315,18 @@ saveRDS(fit_full, file="./res/CPT_full_c-4_ite-1e4_warm-1e3.rds")
 ### Restricted Model 1: $\alpha=\beta$
 
 ```{r CPT alpha=beta}
-fit_alpha.lambda <- stan(
-  file = "./CPT_model/hierarchical_CPT_alpha-lambda.stan",
+fit_no.beta <- stan(
+  file = "./CPT_model/hierarchical_CPT_no-beta.stan",
   data = stan_data,
   chains = 4,
-  iter = 1e4,
+  iter = 5e3,
   warmup = 1000,
   seed = 2025
   # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
 
-saveRDS(fit_alpha.lambda, file="./res/CPT_alpha-lambda_c-4_ite-1e4_warm-1e3.rds")
-# fit_alpha.lambda <- readRDS(file="./res/CPT_alpha-lambda_c-4_ite-1e4_warm-1e3.rds")
+# saveRDS(fit_alpha.lambda, file="./res/CPT_no-beta_c-4_ite-5e3_warm-1e3.rds")
+# fit_no.beta <- readRDS(file="./res/CPT_no-beta_c-4_ite-5e3_warm-1e3.rds")
 ```
 
 
@@ -318,14 +337,14 @@ fit_no.lambda <- stan(
   file = "./CPT_model/hierarchical_CPT_no-lambda.stan",
   data = stan_data,
   chains = 4,
-  iter = 1e4,
+  iter = 5e3,
   warmup = 1000,
   seed = 2025
   # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
 
-saveRDS(fit_no.lambda, file="./res/CPT_no-lambda_c-4_ite-1e4_warm-1e3.rds")
-# fit_no.lambda <- readRDS(file="./res/CPT_no-lambda_c-4_ite-1e4_warm-1e3.rds")
+# saveRDS(fit_no.lambda, file="./res/CPT_no-lambda_c-4_ite-5e3_warm-1e3.rds")
+# fit_no.lambda <- readRDS(file="./res/CPT_no-lambda_c-4_ite-5e3_warm-1e3.rds")
 ```
 
 
@@ -333,7 +352,7 @@ saveRDS(fit_no.lambda, file="./res/CPT_no-lambda_c-4_ite-1e4_warm-1e3.rds")
 ### Model Fitting Results
 
 ```{r print full param}
-n <- unique(subj_trial_df$subj_id) %>% 
+n <- unique(preproc_data.2021$subj_id) %>% 
   length()
 
 params_full <- c(
@@ -350,14 +369,16 @@ sink(file = NULL)
 
 
 
-```{r print res 1 param}
+```{r print-res-1-param}
 params_alpha.lambda <- c(
   paste0("alpha[", 1:n, "]"), paste0("lambda[", 1:n, "]"), paste0("phi[", 1:n, "]"),
   "mu_alpha", "mu_loglambda", "mu_logphi"
 )
+params.group_alpha.lambda <- paste("mu", c("alpha", "loglambda", "logphi"), sep="_")
 
 sink(file = "./res/param/param_res-1.txt")
 print(fit_alpha.lambda, pars = params_alpha.lambda)
+# print(fit_alpha.lambda, pars = params.group_alpha.lambda)
 sink(file = NULL)
 ```
 

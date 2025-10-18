@@ -1,17 +1,19 @@
-// Hierarchical Bayesian CPT model in Stan
-// Converted from Nilsson et al. (2011) WinBUGS implementation
+// Restricted Hierarchical Bayesian CPT model in Stan
+// Converted from hierarchical_CPT_full.stan with removing everything about lambda
 
 // ---------- Stan code ----------
 
 data {
   int<lower=1> N;              // number of observations (trials)
   int<lower=1> S;              // number of subjects
-  int<lower=1,upper=S> subj[N]; // subject id per trial
-  int<lower=0,upper=1> y[N];   // choice: 1 = chose option A, 0 = option B
+
+  int<lower=1> T1[S];             // starting trial for each subject
+  int<lower=1> T2[S];             // ending trial for each subject
 
   // gamble attributes: allow 2-outcome gambles for A and B
   vector[N] xA1; vector[N] xA2; // outcomes and prob of outcome 1 for option A
   vector[N] xB1; vector[N] xB2; // outcomes and prob of outcome 1 for option B
+  int<lower=0,upper=1> y[N];   // choice: 1 = chose option A, 0 = option B
 }
 
 parameters {
@@ -59,37 +61,39 @@ model {
   log_phi    ~ normal(mu_logphi, sigma_logphi);
 
   // ----- Likelihood -----
-  for (n in 1:N) {
-    int s = subj[n];  // index for subjects
+  for (s in 1:S) {
+    int t1 = T1[s]; int t2 = T2[s];
+    for (n in t1:t2) {
+      // subjective values for outcomes A
+      real vA1 = (xA1[n] >= 0) ? pow(xA1[n], alpha[s]) : pow(-xA1[n], beta[s]);
+      real vA2 = (xA2[n] >= 0) ? pow(xA2[n], alpha[s]) : pow(-xA2[n], beta[s]);
+      real VA = 0.5 * (vA1 + vA2);
 
-    // subjective values for outcomes A
-    real vA1 = (xA1[n] >= 0) ? pow(xA1[n], alpha[s]) : -pow(-xA1[n], beta[s]);
-    real vA2 = (xA2[n] >= 0) ? pow(xA2[n], alpha[s]) : -pow(-xA2[n], beta[s]);
-    real VA = 0.5 * (vA1 + vA2);
+      // subjective values for outcomes B
+      real vB1 = (xB1[n] >= 0) ? pow(xB1[n], alpha[s]) : pow(-xB1[n], beta[s]);
+      real vB2 = (xB2[n] >= 0) ? pow(xB2[n], alpha[s]) : pow(-xB2[n], beta[s]);
+      real VB = 0.5 * (vB1 + vB2);
 
-    // subjective values for outcomes B
-    real vB1 = (xB1[n] >= 0) ? pow(xB1[n], alpha[s]) : -pow(-xB1[n], beta[s]);
-    real vB2 = (xB2[n] >= 0) ? pow(xB2[n], alpha[s]) : -pow(-xB2[n], beta[s]);
-    real VB = 0.5 * (vB1 + vB2);
-
-    // choice likelihood
-    y[n] ~ bernoulli_logit(phi[s] * (VA - VB));
+      // choice likelihood
+      y[n] ~ bernoulli_logit(phi[s] * (VA - VB));
+    }
   }
 }
 
 generated quantities {
   vector[N] log_lik;
-  for (n in 1:N) {
-    int s = subj[n];
-    real vA1 = (xA1[n] >= 0) ? pow(xA1[n], alpha[s]) : -pow(-xA1[n], beta[s]);
-    real vA2 = (xA2[n] >= 0) ? pow(xA2[n], alpha[s]) : -pow(-xA2[n], beta[s]);
-    real VA = 0.5 * (vA1 + vA2);
+  for (s in 1:S) {
+    int t1 = T1[s]; int t2 = T2[s];
+    for (n in t1:t2) {
+      real vA1 = (xA1[n] >= 0) ? pow(xA1[n], alpha[s]) : pow(-xA1[n], beta[s]);
+      real vA2 = (xA2[n] >= 0) ? pow(xA2[n], alpha[s]) : pow(-xA2[n], beta[s]);
+      real VA = 0.5 * (vA1 + vA2);
 
-    real vB1 = (xB1[n] >= 0) ? pow(xB1[n], alpha[s]) : -pow(-xB1[n], beta[s]);
-    real vB2 = (xB2[n] >= 0) ? pow(xB2[n], alpha[s]) : -pow(-xB2[n], beta[s]);
-    real VB = 0.5 * (vB1 + vB2);
+      real vB1 = (xB1[n] >= 0) ? pow(xB1[n], alpha[s]) : pow(-xB1[n], beta[s]);
+      real vB2 = (xB2[n] >= 0) ? pow(xB2[n], alpha[s]) : pow(-xB2[n], beta[s]);
+      real VB = 0.5 * (vB1 + vB2);
 
-    log_lik[n] = bernoulli_logit_lpmf(y[n] | phi[s] * (VA - VB));
+      log_lik[n] = bernoulli_logit_lpmf(y[n] | phi[s] * (VA - VB));
+    }
   }
 }
-
