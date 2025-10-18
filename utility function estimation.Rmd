@@ -22,7 +22,7 @@ We first get raw data from folders of 2021, 2022 and 2023.
 The format of the data in 2021 is a little different from those in 2022 and 2023, 
 so we need to separate different cases.
 
-```{r get rawdata}
+```{r get-rawdata}
 # get rawdata from folders of 2021-2023
 rawdata <- data.frame()
 files.dir <- list.files("./data/raw_data", full.names=T)[-16]
@@ -30,19 +30,20 @@ for (i in 1:length(files.dir)) {
   path <- paste0(files.dir[i], "/rawData")
   files <- list.files(path, pattern=".csv", full.names=T)
   for (file in files) {
-    if (i < 7) sub.data <- read.csv(file)[, 1:247]
-    else sub.data <- read.csv(file)[, 2:248]
-    sub <- str_split(file, "/")[[1]][5] %>% substr(1, 10)
-    sub.data$sub <- sub
-    # print(sub)
-    rawdata <- rbind(rawdata, sub.data)
+    if (i < 7) subj.data <- read.csv(file)[, 1:247]
+    else subj.data <- read.csv(file)[, 2:248]
+    subj <- str_split_i(file, "/", i=6) %>% 
+      str_split_i("_EDP", i=1)
+    # print(subj)
+    subj.data$subj <- subj
+    rawdata <- rbind(rawdata, subj.data)
   }
 }
-rm(i, sub.data, file, files, files.dir, path, sub)
+rm(i, subj.data, file, files, files.dir, path, subj)
 
 dim(rawdata)
 head(rawdata[, 1:5])
-# write.csv(rawdata, "./rawdata.csv", row.names=F)
+write.csv(rawdata, "./data/preprocessed_data/rawdata.csv", row.names=F)
 ```
 
 We have 165 subjects in total.
@@ -50,24 +51,24 @@ We have 165 subjects in total.
 The extracted raw data contains action time points, values and choices.
 To note that, we do not need the time point data, so we remove them next.
 
-```{r remove RT and add subj id}
-df <- read.csv("./data/preprocessed_data/rawdata.csv")
+```{r remove-RT--add-subj-id}
+rawdata <- read.csv("./data/preprocessed_data/rawdata.csv")
 col.target <- c(
   seq(3, 247, 13), 
   seq(4, 247, 13),
   seq(13, 247, 13)
 ) %>% 
   sort()
-colnames(df)[248] <- "subject"
-df <- df[, c(248, col.target)]
-df <- df %>% 
+colnames(rawdata)[248] <- "subject"
+rawdata <- rawdata[, c(248, col.target)]
+rawdata <- rawdata %>% 
   mutate(
     subj_id = row_number()
   ) %>% 
   relocate(subj_id)
 rm(col.target)
 
-head(df[, 1:5])
+head(rawdata[, 1:5])
 ```
 
 As the part of the data showed above, there are several problems about the content of the data.
@@ -85,7 +86,7 @@ To discard some elements that will not be used, I simply take the top 5 elements
 
 To add additional experiment settings, I took value lists and added other outcomes manually row-wise.
 
-```{r to trial structure}
+```{r to-trial-structure}
 parse_list_string <- function(x) {
   # replace '' and None
   x <- gsub("None", "null", x)
@@ -104,7 +105,7 @@ trial_seq <- Vectorize(seq.default, vectorize.args = c("from", "to"))
 pos_seq <- trial_seq(from=26:30, to=91:95, by=10) %>% as.vector %>% sort
 neg_seq <- trial_seq(from=31:35, to=91:95, by=10) %>% as.vector %>% sort
 
-df_long <- df %>%
+preproc_data <- rawdata %>%
   mutate(
     across(-c(subj_id, subject), ~map(.x, parse_list_string)),  # make python list into R vector
     across(ends_with("_list"), ~map(.x, remove_excess_info))  # make value list length be 5
@@ -143,16 +144,31 @@ df_long <- df %>%
   unnest(c(trial, starts_with("x"), choice)) %>%   # 1 row 1 trial
   ungroup() %>% 
   arrange(subj_id, trial) %>% 
-  drop_na() %>% 
-  mutate(choice = as.integer(choice == "A"))
+  drop_na() %>%   # remove rows that did not response
+  mutate(choice = as.integer(choice == "A"))  # make "choose A" as 1
 
-# df_long %>% write.csv("./data/preprocessed_data/subj_trial_data.csv", row.names=F)
+# preproc_data %>% write.csv("./data/preprocessed_data/preproc_data.csv", row.names=F)
 
-dim(df_long)
-head(df_long)
+dim(preproc_data)
+head(preproc_data)
 ```
 
 We had 165 subjects, and each subject underwent up to 95 trials.
+
+
+### Data from 2021 (87 Subjects)
+
+We take out the 87 subjects who underwent the experiment in 2021.
+
+```{r subject-2021}
+preproc_data.2021 <- preproc_data %>% 
+  filter(subj_id <= 87)
+
+str(preproc_data.2021)
+preproc_data.2021$subject %>% unique()
+
+# preproc_data.2021 %>% write.csv("./data/preprocessed_data/preproc_data-2021.csv", row.names=F)
+```
 
 
 ## Cumulative Prospect Theory (CPT)
@@ -235,7 +251,7 @@ We have:
 
 ```{r MCMC setting and data}
 # read data
-subj_trial_df <- read.csv("./data/preprocessed_data/subj_trial_data.csv")
+preproc_data.2021 <- read.csv("./data/preprocessed_data/preproc_data-2021.csv")
 
 # Setup
 rstan_options(auto_write = TRUE)
@@ -356,5 +372,15 @@ sink(file = "./res/param/param_res-2.txt")
 print(fit_no.lambda, pars = params_no.lambda)
 sink(file = NULL)
 ```
+
+
+```{r summary 3 fits}
+sink(file = "./res/param/summary.txt")
+summary(fit_full, pars = c("mu_alpha", "mu_beta", "mu_loglambda", "mu_logphi"))$summary
+summary(fit_alpha.lambda, pars = c("mu_alpha", "mu_loglambda", "mu_logphi"))$summary
+summary(fit_no.lambda, pars = c("mu_alpha", "mu_beta", "mu_logphi"))$summary
+sink(file = NULL)
+```
+
 
 
