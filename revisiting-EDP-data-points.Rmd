@@ -1,0 +1,33 @@
+---
+title: "Revisiting EDP Data Points"
+author: "Wei Lun, Lin"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages}
+library(tidyverse)
+library(rstan)
+```
+
+## Overview
+
+We are curious about the comparison between the two estimation methods:
+
++ least-square
++ Hierarchical Bayesian
++ Bayesian
+
+## EDP data
+
+We load the data of 87 subjects.
+The data contains $[x^-_8, ..., x^-_1, x_1^+, ..., x_8^+]$ and the $\alpha, \beta$ estimated with lest square method.
+
+```{r}
+
+```
+
