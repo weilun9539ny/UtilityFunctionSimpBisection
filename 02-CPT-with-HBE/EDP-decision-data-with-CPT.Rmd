@@ -26,7 +26,7 @@ so we need to separate different cases.
 ```{r get-rawdata}
 # get rawdata from folders of 2021-2023
 rawdata <- data.frame()
-files.dir <- list.files("./data/raw_data", full.names=T)[-16]
+files.dir <- list.files("../01-data/raw_data", full.names=T)[-16]
 for (i in 1:length(files.dir)) {
   path <- paste0(files.dir[i], "/rawData")
   files <- list.files(path, pattern=".csv", full.names=T)
@@ -44,7 +44,7 @@ rm(i, subj.data, file, files, files.dir, path, subj)
 
 dim(rawdata)
 head(rawdata[, 1:5])
-write.csv(rawdata, "./data/preprocessed_data/rawdata.csv", row.names=F)
+write.csv(rawdata, "../01-data/preprocessed_data/rawdata.csv", row.names=F)
 ```
 
 We have 165 subjects in total.
@@ -53,7 +53,7 @@ The extracted raw data contains action time points, values and choices.
 To note that, we do not need the time point data, so we remove them next.
 
 ```{r remove-RT--add-subj-id}
-rawdata <- read.csv("./data/preprocessed_data/rawdata.csv")
+rawdata <- read.csv("../01-data/preprocessed_data/rawdata.csv")
 col.target <- c(
   seq(3, 247, 13), 
   seq(4, 247, 13),
@@ -172,8 +172,7 @@ preproc_data.2021$subject %>% unique()
 ```
 
 Besides, we were wondering if the last decisions of each value (i.e., $x_1^+$) are representative.
-Thus, we took out every 5th trials.
-As for those who did not response to these trials, we took the second last decision.
+Thus, we took out every 5th trials, which are "critical trials".
 
 ```{r last-points}
 preproc_data.2021.last <- preproc_data.2021 %>% 
@@ -263,93 +262,169 @@ We have:
 + The second restricted model whose parameters are $\alpha, \beta, \phi$. ($\lambda$ is removed)
 
 ```{r MCMC-setting}
-# read data
-preproc_data.2021 <- read.csv("./data/preprocessed_data/preproc_data-2021.csv")
-
 # Setup
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
-# n <- 10
-n.trial <- preproc_data.2021 %>%
-  count(subject)
-trial.end <- cumsum(n.trial$n)
-trial.start <- c(1, trial.end[-87] + 1)
+options(max.print=999999)
+```
 
-stan_data <- preproc_data.2021 %>%
-  # filter(subj_id %in% 1:n) %>% 
+```{r stan-data}
+trial.range <- function(data) {
+  n.trial <- data %>% count(subject)
+  trial.end <- cumsum(n.trial$n)
+  trial.start <- c(1, trial.end[-87] + 1)
+  return(list(trial.start, trial.end))
+}
+
+# read data
+preproc_data.2021 <- read.csv("../01-data/preprocessed_data/preproc_data-2021.csv")
+preproc_data.2021.last <- read.csv("../01-data/preprocessed_data/preproc_data-2021-last.csv")
+
+dat.all <- preproc_data.2021 %>% 
   list(
-    N    = nrow(.),
-    S    = length(unique(.$subj_id)),
-    T1   = trial.start,
-    T2   = trial.end,
-    y    = .$choice,
-    xA1  = .$xA1,
-    xA2  = .$xA2,
-    xB1  = .$xB1,
-    xB2  = .$xB2
+    N = nrow(.),
+    S = length(unique(.$subj_id)),
+    T1 = trial.range(.)[[1]],
+    T2 = trial.range(.)[[2]],
+    y = .$choice,
+    xA1 = .$xA1,
+    xA2 = .$xA2,
+    xB1 = .$xB1,
+    xB2 = .$xB2
+  )
+
+dat.crt <- preproc_data.2021.last %>% 
+  list(
+    N = nrow(.),
+    S = length(unique(.$subj_id)),
+    T1 = trial.range(.)[[1]],
+    T2 = trial.range(.)[[2]],
+    y = .$choice,
+    xA1 = .$xA1,
+    xA2 = .$xA2,
+    xB1 = .$xB1,
+    xB2 = .$xB2
   )
 ```
 
 
 ### Full Model
 
-```{r CPT full model, cache=T}
+```{r CPT-full-all, cache=T}
 # Fit model
-fit_full <- stan(
-  file = "./CPT_model/hierarchical_CPT_full.stan",
-  data = stan_data,
+fit_full.all <- stan(
+  file = "./stan-model/hierarchical_CPT_full.stan",
+  data = dat.all,
   chains = 4,
-  iter = 5e3,
+  iter = 3.1e4,
   warmup = 1000,
   seed = 2025
   # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
 
-# saveRDS(fit_full, file="./res/CPT_full_c-4_ite-5e3_warm-1e3.rds")
-# fit_full <- readRDS(file="./res/CPT_full_c-4_ite-5e3_warm-1e3.rds")
-# summary(fit_full)
+saveRDS(fit_full.all, file="./res/CPT-full-all_c-4_ite-3.1e4_warm-1e3.rds")
+# fit_full.all <- readRDS(file="./res/CPT-full-all_c-4_ite-5e3_warm-1e3.rds")
+# summary(fit_full.all)
+```
+
+```{r CPT-full-crt, cache=T}
+# Fit model
+fit_full.crt <- stan(
+  file = "./stan-model/hierarchical_CPT_full.stan",
+  data = dat.crt,
+  chains = 4,
+  iter = 3.1e4,
+  warmup = 1000,
+  seed = 2025
+  # control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+
+saveRDS(fit_full.crt, file="./res/CPT-full-crt_c-4_ite-3.1e4_warm-1e3.rds")
+# fit_full.crt <- readRDS(file="./res/CPT-full-crt_c-4_ite-5e3_warm-1e3.rds")
+# summary(fit_full.crt)
 ```
 
 
-### Restricted Model 1: $\alpha=\beta$
+### Restricted Model 1: $\alpha=\beta$ (no $\beta$)
 
-```{r CPT alpha=beta}
-fit_no.beta <- stan(
-  file = "./CPT_model/hierarchical_CPT_no-beta.stan",
-  data = stan_data,
+```{r CPT-no-beta-all}
+fit_no.beta.all <- stan(
+  file = "./stan-model/hierarchical_CPT_no-beta.stan",
+  data = dat.all,
   chains = 4,
-  iter = 5e3,
+  iter = 3.1e4,
   warmup = 1000,
   seed = 2025
   # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
 
-# saveRDS(fit_alpha.lambda, file="./res/CPT_no-beta_c-4_ite-5e3_warm-1e3.rds")
-# fit_no.beta <- readRDS(file="./res/CPT_no-beta_c-4_ite-5e3_warm-1e3.rds")
+saveRDS(fit_no.beta.all, file="./res/CPT-no-beta-all_c-4_ite-3.1e4_warm-1e3.rds")
+# fit_no.beta.all <- readRDS(file="./res/CPT-no-beta-all_c-4_ite-5e3_warm-1e3.rds")
+```
+
+
+```{r CPT-no-beta-crt}
+fit_no.beta.crt <- stan(
+  file = "./stan-model/hierarchical_CPT_no-beta.stan",
+  data = dat.crt,
+  chains = 4,
+  iter = 3.1e4,
+  warmup = 1000,
+  seed = 2025
+  # control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+
+saveRDS(fit_no.beta.crt, file="./res/CPT-no-beta-crt_c-4_ite-3.1e4_warm-1e3.rds")
+# fit_no.beta.crt <- readRDS(file="./res/CPT-no-beta-crt_c-4_ite-5e3_warm-1e3.rds")
 ```
 
 
 ### Restricted Model 2: No $\lambda$
 
-```{r CPT no lambda}
-fit_no.lambda <- stan(
-  file = "./CPT_model/hierarchical_CPT_no-lambda.stan",
-  data = stan_data,
+```{r CPT-no-lambda-all}
+fit_no.lambda.all <- stan(
+  file = "./stan-model/hierarchical_CPT_no-lambda.stan",
+  data = dat.all,
   chains = 4,
-  iter = 5e3,
+  iter = 3.1e4,
   warmup = 1000,
-  seed = 2025
+  seed = 322
   # control = list(adapt_delta = 0.95, max_treedepth = 15)
 )
 
-# saveRDS(fit_no.lambda, file="./res/CPT_no-lambda_c-4_ite-5e3_warm-1e3.rds")
-# fit_no.lambda <- readRDS(file="./res/CPT_no-lambda_c-4_ite-5e3_warm-1e3.rds")
+saveRDS(fit_no.lambda.all, file="./res/CPT-no-lambda-all_c-4_ite-3.1e4_warm-1e3.rds")
+# fit_no.lambda.all <- readRDS(file="./res/CPT-no-lambda-all_c-4_ite-5e3_warm-1e3.rds")
+```
+
+```{r CPT-no-lambda-crt}
+fit_no.lambda.crt <- stan(
+  file = "./stan-model/hierarchical_CPT_no-lambda.stan",
+  data = dat.crt,
+  chains = 4,
+  iter = 3.1e4,
+  warmup = 1000,
+  seed = 322
+)
+
+saveRDS(fit_no.lambda.crt, file="./res/CPT-no-lambda-crt_c-4_ite-3.1e4_warm-1e3.rds")
+# fit_no.lambda.crt <- readRDS(file="./res/CPT-no-lambda-crt_c-4_ite-5e3_warm-1e3.rds")
 ```
 
 
 
 ### Model Fitting Results
+
+```{r trace-full-all}
+params.group.full <- paste("mu", c("alpha", "beta", "loglambda", "logphi"), sep="_")
+
+mcmc_trace(fit_full.all, pars = params.group.full) + 
+  labs(title="Trace Plot for Full Model in Whole Trials") +
+  theme(
+    axis.text.x = element_text(size=6)
+  )
+```
+
 
 ```{r print full param}
 n <- unique(preproc_data.2021$subj_id) %>% 
@@ -358,50 +433,134 @@ n <- unique(preproc_data.2021$subj_id) %>%
 params_full <- c(
   paste0("alpha[", 1:n, "]"), paste0("beta[", 1:n, "]"),
   paste0("lambda[", 1:n, "]"), paste0("phi[", 1:n, "]"),
-  "mu_alpha", "mu_beta", "mu_loglambda", "mu_logphi"
+  "mu_alpha", "sigma_alpha", "mu_beta", "sigma_beta", "mu_loglambda", "mu_loglambda", "mu_logphi", "sigma_logphi"
 )
-options(max.print=999999)
 
-sink(file = "./res/param/param_full.txt")
-print(fit_full, pars = params_full)
-sink(file = NULL)
+# sink(file = "./res/param/param_full.txt")
+print(fit_full.crt, pars = params_full)
+# sink(file = NULL)
 ```
 
 
-
 ```{r print-res-1-param}
-params_alpha.lambda <- c(
+params_no.beta <- c(
   paste0("alpha[", 1:n, "]"), paste0("lambda[", 1:n, "]"), paste0("phi[", 1:n, "]"),
-  "mu_alpha", "mu_loglambda", "mu_logphi"
+  "mu_alpha", "sigma_alpha", "mu_loglambda", "mu_loglambda", "mu_logphi", "sigma_logphi"
 )
-params.group_alpha.lambda <- paste("mu", c("alpha", "loglambda", "logphi"), sep="_")
+params.group_no.beta <- paste("mu", c("alpha", "loglambda", "logphi"), sep="_")
 
-sink(file = "./res/param/param_res-1.txt")
-print(fit_alpha.lambda, pars = params_alpha.lambda)
+# sink(file = "./res/param/param_res-1.txt")
+print(fit_no.beta.crt, pars = params_no.beta)
 # print(fit_alpha.lambda, pars = params.group_alpha.lambda)
-sink(file = NULL)
+# sink(file = NULL)
 ```
 
 
 ```{r print res 2 param}
 params_no.lambda <- c(
   paste0("alpha[", 1:n, "]"), paste0("beta[", 1:n, "]"), paste0("phi[", 1:n, "]"),
-  "mu_alpha", "mu_beta", "mu_logphi"
+  "mu_alpha", "sigma_alpha", "mu_beta", "sigma_beta", "mu_logphi", "sigma_logphi"
 )
 
-sink(file = "./res/param/param_res-2.txt")
-print(fit_no.lambda, pars = params_no.lambda)
-sink(file = NULL)
+# sink(file = "./res/param/param_res-2.txt")
+print(fit_no.lambda.crt, pars = params_no.lambda)
+# sink(file = NULL)
 ```
 
 
 ```{r summary 3 fits}
-sink(file = "./res/param/summary.txt")
-summary(fit_full, pars = c("mu_alpha", "mu_beta", "mu_loglambda", "mu_logphi"))$summary
-summary(fit_alpha.lambda, pars = c("mu_alpha", "mu_loglambda", "mu_logphi"))$summary
-summary(fit_no.lambda, pars = c("mu_alpha", "mu_beta", "mu_logphi"))$summary
-sink(file = NULL)
+sum.full.crt <- summary(fit_full.crt, pars = params_full)$summary %>% 
+  as.data.frame()
+write.csv(sum.full.crt, "./res/param/full.crt_summary.csv")
+# sum.full.crt <- read.csv("./res/param/full.crt_summary.csv")
+
+sum.no_beta.crt <- summary(fit_no.beta.crt, pars = params_no.beta)$summary %>% 
+  as.data.frame() 
+write.csv(sum.no_beta.crt, "./res/param/no_beta.crt_summary.csv")
+# sum.no_beta.crt <- read.csv("./res/param/no_beta.crt_summary.csv")
+
+sum.no_lambda.crt <- summary(fit_no.lambda.crt, pars = params_no.lambda)$summary %>% 
+  as.data.frame()
+write.csv(sum.no_lambda.crt, "./res/param/no_lambda.crt_summary.csv")
+# sum.no_lambda.crt <- read.csv("./res/param/no_lambda.crt_summary.csv")
 ```
 
+```{r hist-full}
+hist(sum.full.crt[1:87,]$mean, main="Means of alpha in full model", xlab="alpha")
+hist(sum.full.crt[88:174,]$mean, main="Means of beta in full model", xlab="beta")
+hist(sum.full.crt[175:261,]$mean, main="Means of lambda in full model", xlab="lambda")
+hist(sum.full.crt[262:348,]$mean, main="Means of phi in full model", xlab="phi")
+```
 
+```{r hist-res-1}
+hist(sum.no_beta.crt[1:87,]$mean, main="Means of alpha in restricted model (alpha=beta)", xlab="alpha")
+hist(sum.no_beta.crt[88:174,]$mean, main="Means of lambda in restricted model (alpha=beta)", xlab="lambda")
+hist(sum.no_beta.crt[175:261,]$mean, main="Means of phi in restricted model (alpha=beta)", xlab="phi")
+```
+
+```{r hist-res-2}
+hist(sum.no_lambda.crt[1:87,]$mean, main="Means of alpha in restricted model (no lambda)", xlab="alpha")
+hist(sum.no_lambda.crt[88:174,]$mean, main="Means of beta in restricted model (no lambda)", xlab="beta")
+hist(sum.no_lambda.crt[175:261,]$mean, main="Means of phi in restricted model (no lambda)", xlab="phi")
+```
+
+```{r compute-posterior-means}
+means_all <- left_join(
+  sum.full.crt[, 1:2], 
+  sum.no_beta.crt[, 1:2],
+  by = join_by(X)
+) %>% 
+  left_join(sum.no_lambda.crt[, 1:2], by=join_by(X)) %>% 
+  rename(
+    variable = X,
+    full = mean.x,
+    no_beta = mean.y,
+    no_lambda = mean
+  )
+means_all
+```
+
+```{r density-alpha, message=F}
+means_all %>% 
+  pivot_longer(-variable, names_to = "model") %>% 
+  filter(grepl("^alpha", variable)) %>% 
+  ggplot(aes(x=value, fill=model)) +
+  geom_histogram(position="identity", alpha=.5, color="white") +
+  geom_density(alpha=.7) +
+  labs(title="Density of alpha", x="alpha") +
+  theme_light()
+```
+
+```{r density-beta, message==F}
+means_all %>% 
+  pivot_longer(-variable, names_to = "model") %>% 
+  filter(grepl("^beta", variable)) %>% 
+  ggplot(aes(x=value, fill=model)) +
+  geom_histogram(position="identity", alpha=.5, color="white") +
+  geom_density(alpha=.7) +
+  labs(title="Density of beta", x="beta") +
+  theme_light()
+```
+
+```{r density-lambda, message=F}
+means_all %>% 
+  pivot_longer(-variable, names_to = "model") %>% 
+  filter(grepl("^lambda", variable)) %>% 
+  ggplot(aes(x=value, fill=model)) +
+  geom_histogram(position="identity", alpha=.5, color="white") +
+  geom_density(alpha=.7) +
+  labs(title="Density of lambda", x="lambda") +
+  theme_light()
+```
+
+```{r density-phi, message=F}
+means_all %>% 
+  pivot_longer(-variable, names_to = "model") %>% 
+  filter(grepl("^phi", variable)) %>% 
+  ggplot(aes(x=value, fill=model)) +
+  geom_histogram(position="identity", alpha=.5, color="white") +
+  geom_density(alpha=.7) +
+  labs(title="Density of phi", x="phi") +
+  theme_light()
+```
 
