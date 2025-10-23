@@ -12,22 +12,65 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r packages}
 library(tidyverse)
 library(rstan)
+
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write=T)
 ```
 
 ## Overview
 
 We are curious about the comparison between the two estimation methods:
 
-+ least-square
-+ Hierarchical Bayesian
-+ Bayesian
+-   least-square
+-   Hierarchical Bayesian
+-   Bayesian
 
 ## EDP data
 
-We load the data of 87 subjects.
-The data contains $[x^-_8, ..., x^-_1, x_1^+, ..., x_8^+]$ and the $\alpha, \beta$ estimated with lest square method.
+We load the data of 87 subjects. The data contains $[x^-_8, ..., x^-_1, x_1^+, ..., x_8^+]$ and the $\alpha, \beta$ estimated with lest square method.
 
-```{r}
-
+```{r read-data}
+dat <- read.csv("../01-data/raw_data/EDP_stage1_rawdata.csv")
+dat %>% head(10)
 ```
 
+Our model is
+
+$$
+U(x)=
+\begin{cases}
+  x^\alpha, & x \geq 0  \\
+  -(-x)^\beta, & x < 0
+\end{cases}
+$$
+
+We fitted the model to the bisection data $[x^-_8, x_7^-, ..., x^-_1, x^+_1, x^+_2, ..., x^+_8]$, where the relationship between the data and the utilities is
+
+|  |  |  |  |  |  |  |  |  |
+|--------|--------|--------|--------|--------|--------|--------|--------|--------|
+| $x$ | $x^-_8$ | $x^-_7$ | $x^-_6$ | $x^-_5$ | $x^-_4$ | $x^-_3$ | $x^-_2$ | $x^-_1$ |
+| $U(x)$ | $-{8\over8}$ | $-{7\over8}$ | $-{6\over8}$ | $-{5\over8}$ | $-{4\over8}$ | $-{3\over8}$ | $-{2\over8}$ | $-{1\over8}$ |
+
+|  |  |  |  |  |  |  |  |  |
+|--------|--------|--------|--------|--------|--------|--------|--------|--------|
+| $x$ | $x^+_1$ | $x^+_2$ | $x^+_3$ | $x^+_4$ | $x^+_5$ | $x^+_6$ | $x^+_7$ | $x^+_8$ |
+| $U(x)$ | ${1\over8}$ | ${2\over8}$ | ${3\over8}$ | ${4\over8}$ | ${5\over8}$ | ${6\over8}$ | ${7\over8}$ | ${8\over8}$ |
+
+Next, we rearrange the data frame so that the columns are `subject_id`, `subject`, `x`, and `y`, where `x` is normalized $x$ data points and `y` is normalized utility $u$.
+
+```{r rearrange-data}
+dat.long <- dat %>% 
+  select(-(19:23)) %>%   # select subject id and Xs
+  pivot_longer(starts_with("x"), names_to = "x.type", values_to = "x") %>% 
+  mutate(
+    sign = sign(x),
+    y = as.integer(substr(x.type, 2, 2)) / 8 * sign  # set U for different X
+  ) %>% 
+  group_by(subject, sign) %>% 
+  mutate(x = x / max(abs(x))) %>% 
+  ungroup() %>% 
+  select(-c(x.type, sign)) %>% 
+  rename(subj_id = index)
+
+dat.long %>% head(10)
+```
