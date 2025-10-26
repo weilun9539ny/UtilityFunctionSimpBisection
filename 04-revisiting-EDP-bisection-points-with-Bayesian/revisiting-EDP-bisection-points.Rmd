@@ -11,10 +11,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r packages}
 library(tidyverse)
-library(rstan)
-
-options(mc.cores = parallel::detectCores())
-rstan_options(auto_write=T)
+library(cmdstanr)
+library(posterior)
+library(bayesplot)
 ```
 
 ## Overview
@@ -63,6 +62,7 @@ dat.long <- dat %>%
   select(-(19:23)) %>%   # select subject id and Xs
   pivot_longer(starts_with("x"), names_to = "x.type", values_to = "x") %>% 
   mutate(
+    subject = as.factor(subject),
     sign = sign(x),
     y = as.integer(substr(x.type, 2, 2)) / 8 * sign  # set U for different X
   ) %>% 
@@ -74,3 +74,304 @@ dat.long <- dat %>%
 
 dat.long %>% head(10)
 ```
+
+
+## Hierarchical Bayesian Estimation
+
+We specified the Stan model for utility value function:
+
+$$
+y=
+\begin{cases}
+  x^\alpha, & x \geq0  \\
+  -(-x)^\beta, & \text{otherwise}
+\end{cases}
+$$
+
+```{r set-model}
+value_func.model <- cmdstan_model("./model/power_value_func.stan")
+value_func.model$check_syntax()
+# print(value_func.model)
+```
+
+We specified the input data for model and started fitting.
+
+```{r data-list}
+dat.pos <- dat.long %>% filter(x >= 0)
+dat.neg <- dat.long %>%
+  filter(x < 0) %>% 
+  mutate(x = -x)
+
+J <- max(dat.long$subj_id)
+
+dat.list <- list(
+  J = J,
+  N = nrow(dat.pos),
+  N_subj = dat.pos$subj_id,
+  x_pos = dat.pos$x,
+  y_pos = dat.pos$y,
+  x_neg = dat.neg$x,
+  y_neg = dat.neg$y
+)
+
+value_func.fit <- value_func.model$sample(
+  data = dat.list,
+  seed = 1024,
+  refresh = 1e3,
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 1e3,
+  iter_sampling = 6e3
+)
+```
+
+The fitting result is listed below.
+
+```{r mcmc-summary}
+param <- c(
+  "mu_alpha", "mu_beta", "tau_alpha", "tau_beta", "sigma",
+  paste0("alpha[", 1:J, "]"), paste0("beta[", 1:J, "]")
+)
+value_func.summary <- value_func.fit$summary(variables = param)
+value_func.summary
+```
+
+After model fitting, we checked trace plots of parameters to make sure if the MCs converged.
+
+```{r trace-plot, warning=F, message=F}
+value_func.draw <- value_func.fit$draws(param)
+trace.plot.path <- "./result/trace-plot/"
+save.plot <- function(plot.type=1, name) {
+  if (plot.type == 1) {
+    dir.path <- "./result/trace-plot/"
+  } else if (plot.type == 2) {
+    dir.path <- "./result/posterior/"
+  } else if (plot.type == 3) {
+    dir.path <- "./result/interval/"
+  }
+  file.name <- paste0(dir.path, paste(name, collapse="-"), ".png")
+  ggsave(file.name)
+}
+
+# group-level parameters
+mcmc_trace(value_func.draw, pars=param[1:5]) +
+  labs(title = "Trace Plot of Group-Level Parameters") +
+  scale_x_continuous(
+    name = "Number of iterations (1000)",
+    labels = scales::label_comma(scale = 1/1000)
+  ) +
+  theme_light()
+save.plot(1, "trace_plot-grp_param")
+
+# individual alphas
+for (j in 1:5) {
+  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 5)
+  par.range <- range(par.index) - 5
+  trace.plot <- mcmc_trace(value_func.draw, pars=param[par.index]) +
+    scale_x_continuous(
+      name = "Number of iterations (1000)",
+      labels = scales::label_comma(scale = 1/1000)
+    ) +
+    labs(title = paste(
+      "Trace Plot of Individual Alpha: Subject", 
+      par.range[1], "~", par.range[2]
+    )) +
+    theme_light()
+  print(trace.plot)
+  save.plot(1, name=c("trace_plot-ind_alpha", par.range[1], par.range[2]))
+}
+
+# individual betas
+for (j in 1:5) {
+  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 5 + 87)
+  par.range <- range(par.index) - 5 - 87
+  trace.plot <- mcmc_trace(value_func.draw, pars=param[par.index]) +
+    scale_x_continuous(
+      name = "Number of iterations (1000)",
+      labels = scales::label_comma(scale = 1/1000)
+    ) +
+    labs(title = paste(
+      "Trace Plot of Individual Beta: Subject", 
+      par.range[1], "~", par.range[2]
+    )) +
+    theme_light()
+  print(trace.plot)
+  save.plot(1, name=c("trace_plot-ind_beta", par.range[1], par.range[2]))
+}
+```
+
+And we checked if the posterior distribution of each parameters at the 4 chains are similar.
+
+```{r posterior-dist}
+# group-level
+mcmc_dens_overlay(value_func.draw, pars = param[1:5]) +
+  labs(title = "Posterior Distributions of Group-Level Parameters") +
+  theme_light()
+save.plot(2, c("posterior", "grp_param"))
+
+# individual alphas
+for (j in 1:5) {
+  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 5)
+  par.range <- range(par.index) - 5
+  post.dens <- mcmc_dens_overlay(value_func.draw, pars=param[par.index]) +
+    labs(title = paste(
+      "Posterior Distributions of Individual Alpha: Subject", 
+      par.range[1], "~", par.range[2]
+    )) +
+    theme_light()
+  print(post.dens)
+  save.plot(2, name=c("posterior", "ind_alpha", par.range[1], par.range[2]))
+}
+
+# individual betas
+for (j in 1:5) {
+  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 5 + 87)
+  par.range <- range(par.index) - 5 - 87
+  post.dens <- mcmc_dens_overlay(value_func.draw, pars=param[par.index]) +
+    labs(title = paste(
+      "Posterior Distributions of Individual Beta: Subject", 
+      par.range[1], "~", par.range[2]
+    )) +
+    theme_light()
+  print(post.dens)
+  save.plot(2, name=c("posterior", "ind_beta", par.range[1], par.range[2]))
+}
+```
+
+Next, we checked the minimum $\hat R$ and effective sample size.
+
+```{r min-rhat-ess}
+value_func.summary %>% 
+  select(c(variable, rhat, starts_with("ess"))) %>% 
+  # filter(rhat == max(rhat))
+  # filter(ess_bulk == min(ess_bulk))
+  filter(ess_tail == min(ess_tail))
+```
+
+The parameter `mu_alpha` has the highest $\hat R$, the lowest bulk and tail effective sample size.
+
+
+## Comparison Between LSE and HBE
+
+We compare the estimations of non-linear least square and hierarchical bayesian.
+Before the comparison, we first extract the non-linear least square estimation from data.
+
+```{r LSE-df}
+LSE <- dat %>% 
+  transmute(
+    index = index,
+    alpha.index = paste0("alpha[", index, "]"),
+    beta.index = paste0("beta[", index, "]"),
+    alpha = alpha,
+    beta = beta
+  )
+
+head(LSE)
+```
+
+Now we plot the interval estimations of hierarchical Bayesian, and add the LSE on the plot.
+
+```{r compare-intervals}
+# group-level
+mcmc_intervals(
+  value_func.draw, pars = param[1:5], 
+  point_est="mean", prob=.68, prob_outer = .95
+) +
+  labs(title = "Interval Estimations of Group-level Parameters") +
+  theme_light()
+save.plot(3, c("interval", "grp_param"))
+
+# individual alphas
+for (j in 1:3) {
+  par.index <- na.omit((1:87)[(29 * j - 28):(29 * j)] + 5)
+  par.range <- range(par.index) - 5
+  inter.est <- mcmc_intervals(
+    value_func.draw, pars = param[par.index], 
+    point_est="mean", prob=.68, prob_outer = .95
+  ) +
+    geom_point(
+      data = LSE[par.index - 5, ],
+      aes(x=alpha, y=alpha.index),
+      color = "pink", size=3, alpha=.7
+    ) +
+    labs(title = paste(
+      "Interval Estimations of Individual Alpha: Subject", 
+      par.range[1], "~", par.range[2]
+    )) +
+    theme_light()
+  print(inter.est)
+  save.plot(3, name=c("interval", "ind_alpha", par.range[1], par.range[2]))
+}
+
+# individual betas
+for (j in 1:3) {
+  par.index <- na.omit((1:87)[(29 * j - 28):(29 * j)] + 5 + 87)
+  par.range <- range(par.index) - 5 - 87
+  inter.est <- mcmc_intervals(
+    value_func.draw, pars = param[par.index], 
+    point_est="mean", prob=.68, prob_outer = .95
+  ) +
+    geom_point(
+      data = LSE[par.index - 5 - 87, ],
+      aes(x=beta, y=beta.index),
+      color = "pink", size=3, alpha=.7
+    ) +
+    labs(title = paste(
+      "Interval Estimations of Individual Beta: Subject", 
+      par.range[1], "~", par.range[2]
+    )) +
+    theme_light()
+  print(inter.est)
+  save.plot(3, name=c("interval", "ind_beta", par.range[1], par.range[2]))
+}
+```
+
+And we use scatter plot to compare the point estimation of frequentist and hierarchical Bayesian posterior mean.
+
+```{r compare-scatter, message=F}
+point.est <- data.frame(
+  freq.alpha = LSE$alpha,
+  freq.beta = LSE$beta,
+  bayes.alpha = value_func.summary[(6):(6+86), 2][[1]],
+  bayes.beta = unname(value_func.summary[(6+87):(6+87+86), 2])[[1]]
+)
+# point.est %>% head
+
+point.est %>% 
+  filter(freq.alpha < 20) %>% 
+  ggplot(aes(x=freq.alpha, y=bayes.alpha)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red", linewidth=1, alpha=.5) +
+  stat_smooth(
+    method="lm", se=F, alpha=.5
+  ) +
+  annotate("text", x=3, y=3.5, color="red", label="y = x") +
+  annotate("text", x=3, y=2, color="blue", label="lm(y ~ x)") +
+  # lims(x = c(0, 5.5), y=c(0, 5.5)) +
+  labs(
+    title = "Scatter Plot of Bayesian vs. Frequentist Alpha Estimates",
+    x = "Frequentist Estimation",
+    y = "Hierarchical Bayesian Estimation (Posterior Mean)"
+  ) +
+  theme_light()
+
+point.est %>% 
+  filter(freq.beta < 10) %>% 
+  ggplot(aes(x=freq.beta, y=bayes.beta)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red", linewidth=1, alpha=.5) +
+  stat_smooth(
+    # data=filter(point.est, freq.alpha<20),
+    method="lm", se=F, alpha=.5
+  ) +
+  annotate("text", x=2, y=2.3, color="red", label="y = x") +
+  annotate("text", x=2, y=1.3, color="blue", label="lm(y ~ x)") +
+  labs(
+    title = "Scatter Plot of Bayesian vs. Frequentist Beta Estimates",
+    subtitle = "Outliers of frequentist beta are excluded",
+    x = "Frequentist Estimation",
+    y = "Hierarchical Bayesian Estimation (Posterior Mean)"
+  ) +
+  theme_light()
+```
+
