@@ -136,10 +136,19 @@ value_func.summary <- value_func.fit$summary(variables = param)
 value_func.summary
 ```
 
+Besides, we stored the fitting results.
+
+```{r save-fitting-results}
+value_func.draw <- value_func.fit$draws(param)
+
+saveRDS(value_func.fit, "./result/fitting/fit.rds")
+saveRDS(value_func.summary, "./result/fitting/summary.rds")
+saveRDS(value_func.draw, "./result/fitting/draws.rds")
+```
+
 After model fitting, we checked trace plots of parameters to make sure if the MCs converged.
 
 ```{r trace-plot, warning=F, message=F}
-value_func.draw <- value_func.fit$draws(param)
 trace.plot.path <- "./result/trace-plot/"
 save.plot <- function(plot.type=1, name) {
   if (plot.type == 1) {
@@ -155,6 +164,7 @@ save.plot <- function(plot.type=1, name) {
   ggsave(file.name)
 }
 
+value_func.draw <- readRDS("./result/fitting/draws.rds")
 # group-level parameters
 mcmc_trace(value_func.draw, pars=param[1:5]) +
   labs(title = "Trace Plot of Group-Level Parameters") +
