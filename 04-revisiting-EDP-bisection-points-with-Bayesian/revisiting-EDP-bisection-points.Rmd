@@ -148,6 +148,8 @@ save.plot <- function(plot.type=1, name) {
     dir.path <- "./result/posterior/"
   } else if (plot.type == 3) {
     dir.path <- "./result/interval/"
+  } else if (plot.type == 4) {
+    dir.path <- "./result/subject-plot/"
   }
   file.name <- paste0(dir.path, paste(name, collapse="-"), ".png")
   ggsave(file.name)
@@ -373,5 +375,62 @@ point.est %>%
     y = "Hierarchical Bayesian Estimation (Posterior Mean)"
   ) +
   theme_light()
+```
+
+Next, we plot each subjects' $x^-_8, ..., x^+_8$ and the two fitting results (non-linear least square and hierarchical Bayesian).
+
+```{r plot-point-and-models}
+for (i in dat.all$index) {
+  par <- c(
+    dat.all$alpha[i], dat.all$beta[i],
+    dat.all$alpha.bayes[i], dat.all$beta.bayes[i]
+  )
+  label <- c(
+    paste("(F) alpha:", round(par[1], 3)),
+    paste("(F) beta:", round(par[2], 3)),
+    paste("(B) alpha:", round(par[3], 3)),
+    paste("(B) beta:", round(par[4], 3))
+  )
+  subj.plot <- dat.long %>% 
+    filter(subj_id == i) %>% 
+    ggplot(aes(x=x, y=y)) +
+    geom_point() +
+    geom_function(
+      fun = \(x) x^par[1],
+      aes(color = label[1]),
+      # color="red",
+      alpha=.5, xlim = c(0, 1)
+    ) +
+    geom_function(
+      fun = \(x) -(-x)^par[2],
+      aes(color = label[2]),
+      # color="red",
+      alpha=.5, xlim = c(-1, 0)
+    ) +
+    geom_function(
+      fun = \(x) x^par[3],
+      aes(color = label[3]),
+      # color="blue",
+      alpha=.5, xlim = c(0, 1)
+    ) +
+    geom_function(
+      fun = \(x) -(-x)^par[4],
+      aes(color = label[4]),
+      # color="blue",
+      alpha=.5, xlim = c(-1, 0)
+    ) +
+    labs(
+      title = paste("Subject:", dat.all$subject[i]),
+      y="U(x)"
+    ) +
+    # define color
+    scale_colour_manual(
+      "parameters",
+      values = c("red", "red", "blue", "blue")
+    ) +
+    theme_light()
+  print(subj.plot)
+  save.plot(4, c("subject_plot", dat.all$subject[i]))
+}
 ```
 
