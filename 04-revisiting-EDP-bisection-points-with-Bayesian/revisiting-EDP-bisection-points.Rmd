@@ -97,10 +97,11 @@ value_func.model$check_syntax()
 We specified the input data for model and started fitting.
 
 ```{r data-list}
-dat.pos <- dat.long %>% filter(x >= 0)
+dat.pos <- dat.long %>% 
+  filter(x >= 0)
 dat.neg <- dat.long %>%
   filter(x < 0) %>% 
-  mutate(x = -x)
+  mutate(x = -x)  # abs(-x) so that y=-(-x)^beta can be computed faster
 
 J <- max(dat.long$subj_id)
 
@@ -151,14 +152,13 @@ After model fitting, we checked trace plots of parameters to make sure if the MC
 ```{r trace-plot, warning=F, message=F}
 trace.plot.path <- "./result/trace-plot/"
 save.plot <- function(plot.type=1, name) {
-  if (plot.type == 1) {
-    dir.path <- "./result/trace-plot/"
-  } else if (plot.type == 2) {
-    dir.path <- "./result/posterior/"
-  } else if (plot.type == 3) {
-    dir.path <- "./result/interval/"
-  } else if (plot.type == 4) {
-    dir.path <- "./result/subject-plot/"
+  if (plot.type == 1) dir.path <- "./result/trace-plot/"
+  else if (plot.type == 2) dir.path <- "./result/posterior/"
+  else if (plot.type == 3) dir.path <- "./result/interval/"
+  else if (plot.type == 4) dir.path <- "./result/subject-plot/"
+  else {
+    warning("Plot type not assigned, plot not saved!")
+    return()
   }
   file.name <- paste0(dir.path, paste(name, collapse="-"), ".png")
   ggsave(file.name)
@@ -210,6 +210,8 @@ for (j in 1:5) {
   print(trace.plot)
   save.plot(1, name=c("trace_plot-ind_beta", par.range[1], par.range[2]))
 }
+
+rm(trace.plot)
 ```
 
 And we checked if the posterior distribution of each parameters at the 4 chains are similar.
@@ -248,6 +250,8 @@ for (j in 1:5) {
   print(post.dens)
   save.plot(2, name=c("posterior", "ind_beta", par.range[1], par.range[2]))
 }
+
+rm(post.dens)
 ```
 
 Next, we checked the minimum $\hat R$ and effective sample size.
@@ -262,26 +266,51 @@ value_func.summary %>%
 
 The parameter `mu_alpha` has the highest $\hat R$, the lowest bulk and tail effective sample size.
 
+Finally, we store the posterior mean and median to a data frame.
+
+```{r bayes-result}
+res.df <- dat %>% 
+  transmute(
+    subj_id = index,
+    subject = subject,
+    alpha.index = paste0("alpha[", index, "]"),
+    beta.index = paste0("beta[", index, "]"),
+    alpha.bayes.mean = value_func.summary[6:92, 2][[1]],
+    beta.bayes.mean = value_func.summary[93:179, 2][[1]],
+    alpha.bayes.median = value_func.summary[6:92, 3][[1]],
+    beta.bayes.median = value_func.summary[93:179, 3][[1]],
+    alpha.nls = NA,
+    beta.nls = NA
+  )
+
+res.df %>% head(10)
+```
+
+
+## Re-fit Non-Linear Power
+
+```{r nls}
+for (j in dat$index) {
+  # fit non-linear least square
+  dat.pos.cur <- dat.pos %>% 
+    filter(subj_id == j)
+  dat.neg.cur <- dat.neg %>% 
+    filter(subj_id == j)
+  res.alpha <- nls(y ~ x^alpha, dat.pos.cur, start=list(alpha=0)) %>% coef(F)
+  res.beta <- nls(y ~ -x^beta, dat.neg.cur, start=list(beta=0)) %>% coef(F)
+  
+  # store the result
+  res.df[j, 9:10] <- c(res.alpha, res.beta)
+}
+
+sum(is.na(res.df$alpha.nls), is.na(res.df$beta.nls))  # 0: no na, all fitted
+res.df %>% head(10)
+```
+
 
 ## Comparison Between LSE and HBE
 
-We compare the estimations of non-linear least square and hierarchical bayesian.
-Before the comparison, we first extract the non-linear least square estimation from data.
-
-```{r LSE-df}
-LSE <- dat %>% 
-  transmute(
-    index = index,
-    alpha.index = paste0("alpha[", index, "]"),
-    beta.index = paste0("beta[", index, "]"),
-    alpha = alpha,
-    beta = beta
-  )
-
-head(LSE)
-```
-
-Now we plot the interval estimations of hierarchical Bayesian, and add the LSE on the plot.
+We plot the interval estimations of hierarchical Bayesian, and add the nls estimation on the plot, to compare the estimations of non-linear least square and hierarchical bayesian.
 
 ```{r compare-intervals}
 # group-level
@@ -302,8 +331,8 @@ for (j in 1:3) {
     point_est="mean", prob=.68, prob_outer = .95
   ) +
     geom_point(
-      data = LSE[par.index - 5, ],
-      aes(x=alpha, y=alpha.index),
+      data = res.df[par.index - 5, ],
+      aes(x=alpha.nls, y=alpha.index),
       color = "pink", size=3, alpha=.7
     ) +
     labs(title = paste(
@@ -324,8 +353,8 @@ for (j in 1:3) {
     point_est="mean", prob=.68, prob_outer = .95
   ) +
     geom_point(
-      data = LSE[par.index - 5 - 87, ],
-      aes(x=beta, y=beta.index),
+      data = res.df[par.index - 5 - 87, ],
+      aes(x=beta.nls, y=beta.index),
       color = "pink", size=3, alpha=.7
     ) +
     labs(title = paste(
@@ -336,96 +365,141 @@ for (j in 1:3) {
   print(inter.est)
   save.plot(3, name=c("interval", "ind_beta", par.range[1], par.range[2]))
 }
+
+rm(inter.est)
 ```
 
 And we use scatter plot to compare the point estimation of frequentist and hierarchical Bayesian posterior mean.
 
-```{r compare-scatter, message=F}
-point.est <- data.frame(
-  freq.alpha = LSE$alpha,
-  freq.beta = LSE$beta,
-  bayes.alpha = value_func.summary[(6):(6+86), 2][[1]],
-  bayes.beta = unname(value_func.summary[(6+87):(6+87+86), 2])[[1]]
-)
-# point.est %>% head
-
-point.est %>% 
-  filter(freq.alpha < 20) %>% 
-  ggplot(aes(x=freq.alpha, y=bayes.alpha)) +
+```{r compare-scatter}
+res.df %>% 
+  # filter(alpha.nls < 2) %>%
+  ggplot(aes(x=alpha.nls, y=alpha.bayes.mean)) +
   geom_point() +
   geom_abline(intercept=0, slope=1, color="red", linewidth=1, alpha=.5) +
-  stat_smooth(
-    method="lm", se=F, alpha=.5
-  ) +
+  # stat_smooth(
+    # method="lm", se=F, alpha=.5
+  # ) +
   annotate("text", x=3, y=3.5, color="red", label="y = x") +
-  annotate("text", x=3, y=2, color="blue", label="lm(y ~ x)") +
+  # annotate("text", x=3, y=2, color="blue", label="lm(y ~ x)") +
   # lims(x = c(0, 5.5), y=c(0, 5.5)) +
   labs(
-    title = "Scatter Plot of Bayesian vs. Frequentist Alpha Estimates",
+    title = "Scatter Plot of Bayesian (Mean) vs. Frequentist Alpha Estimates",
     x = "Frequentist Estimation",
     y = "Hierarchical Bayesian Estimation (Posterior Mean)"
   ) +
   theme_light()
+ggsave("./result/compare/compare-alpha-post_mean_nls.png")
 
-point.est %>% 
-  filter(freq.beta < 10) %>% 
-  ggplot(aes(x=freq.beta, y=bayes.beta)) +
+res.df %>% 
+  # filter(alpha.nls < 2) %>%
+  ggplot(aes(x=alpha.nls, y=alpha.bayes.median)) +
   geom_point() +
   geom_abline(intercept=0, slope=1, color="red", linewidth=1, alpha=.5) +
-  stat_smooth(
-    # data=filter(point.est, freq.alpha<20),
-    method="lm", se=F, alpha=.5
-  ) +
-  annotate("text", x=2, y=2.3, color="red", label="y = x") +
-  annotate("text", x=2, y=1.3, color="blue", label="lm(y ~ x)") +
+  annotate("text", x=3, y=3.5, color="red", label="y = x") +
   labs(
-    title = "Scatter Plot of Bayesian vs. Frequentist Beta Estimates",
-    subtitle = "Outliers of frequentist beta are excluded",
+    title = "Scatter Plot of Bayesian (Median) vs. Frequentist Alpha Estimates",
+    x = "Frequentist Estimation",
+    y = "Hierarchical Bayesian Estimation (Posterior Median)"
+  ) +
+  theme_light()
+ggsave("./result/compare/compare-alpha-post_median_nls.png")
+
+res.df %>% 
+  # filter(beta.nls < 10) %>%
+  ggplot(aes(x=beta.nls, y=beta.bayes.mean)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red", linewidth=1, alpha=.5) +
+  # stat_smooth(
+    # data=filter(point.est, freq.alpha<20),
+    # method="lm", se=F, alpha=.5
+  # ) +
+  annotate("text", x=2, y=2.3, color="red", label="y = x") +
+  # annotate("text", x=2, y=1.3, color="blue", label="lm(y ~ x)") +
+  labs(
+    title = "Scatter Plot of Bayesian (Mean) vs. Frequentist Beta Estimates",
+    # subtitle = "Outliers of frequentist beta are excluded",
     x = "Frequentist Estimation",
     y = "Hierarchical Bayesian Estimation (Posterior Mean)"
   ) +
   theme_light()
+ggsave("./result/compare/compare-beta-post_mean_nls.png")
+
+res.df %>% 
+  # filter(beta.nls < 10) %>%
+  ggplot(aes(x=beta.nls, y=beta.bayes.median)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red", linewidth=1, alpha=.5) +
+  # stat_smooth(
+    # data=filter(point.est, freq.alpha<20),
+    # method="lm", se=F, alpha=.5
+  # ) +
+  annotate("text", x=2, y=2.3, color="red", label="y = x") +
+  # annotate("text", x=2, y=1.3, color="blue", label="lm(y ~ x)") +
+  labs(
+    title = "Scatter Plot of Bayesian (Median) vs. Frequentist Beta Estimates",
+    # subtitle = "Outliers of frequentist beta are excluded",
+    x = "Frequentist Estimation",
+    y = "Hierarchical Bayesian Estimation (Posterior Median)"
+  ) +
+  theme_light()
+ggsave("./result/compare/compare-beta-post_median_nls.png")
 ```
 
 Next, we plot each subjects' $x^-_8, ..., x^+_8$ and the two fitting results (non-linear least square and hierarchical Bayesian).
 
 ```{r plot-point-and-models}
-for (i in dat.all$index) {
+for (i in res.df$subj_id) {
   par <- c(
-    dat.all$alpha[i], dat.all$beta[i],
-    dat.all$alpha.bayes[i], dat.all$beta.bayes[i]
+    res.df$alpha.nls[i], res.df$beta.nls[i],
+    res.df$alpha.bayes.mean[i], res.df$beta.bayes.mean[i],
+    res.df$alpha.bayes.median[i], res.df$beta.bayes.median[i]
   )
   label <- c(
-    paste("(F) alpha:", round(par[1], 3)),
-    paste("(F) beta:", round(par[2], 3)),
-    paste("(B) alpha:", round(par[3], 3)),
-    paste("(B) beta:", round(par[4], 3))
+    paste("alpha (nls):", round(par[1], 3)),
+    paste("beta (nls):", round(par[2], 3)),
+    paste("alpha (post mean):", round(par[3], 3)),
+    paste("beta (post mean):", round(par[4], 3)),
+    paste("alpha (post median):", round(par[5], 3)),
+    paste("beta (post median):", round(par[6], 3))
   )
-  subj.plot <- dat.long %>% 
+  (subj.plot <- dat.long %>% 
     filter(subj_id == i) %>% 
     ggplot(aes(x=x, y=y)) +
     geom_point() +
-    geom_function(
+    geom_function(  # alpha.nls
       fun = \(x) x^par[1],
       aes(color = label[1]),
       # color="red",
       alpha=.5, xlim = c(0, 1)
     ) +
-    geom_function(
+    geom_function(  # beta.nls
       fun = \(x) -(-x)^par[2],
       aes(color = label[2]),
       # color="red",
       alpha=.5, xlim = c(-1, 0)
     ) +
-    geom_function(
+    geom_function(  # alpha.bayes.mean
       fun = \(x) x^par[3],
       aes(color = label[3]),
       # color="blue",
       alpha=.5, xlim = c(0, 1)
     ) +
-    geom_function(
+    geom_function(  # beta.bayes.mean
       fun = \(x) -(-x)^par[4],
       aes(color = label[4]),
+      # color="blue",
+      alpha=.5, xlim = c(-1, 0)
+    ) +
+    geom_function(  # alpha.bayes.median
+      fun = \(x) x^par[5],
+      aes(color = label[5]),
+      # color="blue",
+      alpha=.5, xlim = c(0, 1)
+    ) +
+    geom_function(  # beta.bayes.mean
+      fun = \(x) -(-x)^par[6],
+      aes(color = label[6]),
       # color="blue",
       alpha=.5, xlim = c(-1, 0)
     ) +
@@ -436,11 +510,14 @@ for (i in dat.all$index) {
     # define color
     scale_colour_manual(
       "parameters",
-      values = c("red", "red", "blue", "blue")
+      # values = c("red", "red", "blue", "blue", "green", "green")
+      values = rep(c("red", "blue", "green"), 2)
     ) +
-    theme_light()
-  print(subj.plot)
+    theme_light())
+  # print(subj.plot)
   save.plot(4, c("subject_plot", dat.all$subject[i]))
 }
+
+rm(subj.plot)
 ```
 
