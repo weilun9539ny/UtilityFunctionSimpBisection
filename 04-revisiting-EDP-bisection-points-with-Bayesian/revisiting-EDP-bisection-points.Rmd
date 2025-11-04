@@ -96,7 +96,7 @@ value_func.model$check_syntax()
 
 We specified the input data for model and started fitting.
 
-```{r data-list}
+```{r mcmc-fitting, cache=T}
 dat.pos <- dat.long %>% 
   filter(x >= 0)
 dat.neg <- dat.long %>%
@@ -149,7 +149,7 @@ saveRDS(value_func.draw, "./result/fitting/draws.rds")
 
 After model fitting, we checked trace plots of parameters to make sure if the MCs converged.
 
-```{r trace-plot, warning=F, message=F}
+```{r trace-plot, warning=F, message=F, cache=T}
 trace.plot.path <- "./result/trace-plot/"
 save.plot <- function(plot.type=1, name) {
   if (plot.type == 1) dir.path <- "./result/trace-plot/"
@@ -216,7 +216,7 @@ rm(trace.plot)
 
 And we checked if the posterior distribution of each parameters at the 4 chains are similar.
 
-```{r posterior-dist}
+```{r posterior-dist, cache=T}
 # group-level
 mcmc_dens_overlay(value_func.draw, pars = param[1:5]) +
   labs(title = "Posterior Distributions of Group-Level Parameters") +
@@ -303,7 +303,11 @@ for (j in dat$index) {
   res.df[j, 9:10] <- c(res.alpha, res.beta)
 }
 
+rm(dat.pos.cur, dat.neg.cur)
+
 sum(is.na(res.df$alpha.nls), is.na(res.df$beta.nls))  # 0: no na, all fitted
+
+# res.df %>% write.csv("./result/estimation-nls-HB.csv", row.names = F)
 res.df %>% head(10)
 ```
 
@@ -312,7 +316,7 @@ res.df %>% head(10)
 
 We plot the interval estimations of hierarchical Bayesian, and add the nls estimation on the plot, to compare the estimations of non-linear least square and hierarchical bayesian.
 
-```{r compare-intervals}
+```{r compare-intervals, cache=T}
 # group-level
 mcmc_intervals(
   value_func.draw, pars = param[1:5], 
@@ -371,7 +375,7 @@ rm(inter.est)
 
 And we use scatter plot to compare the point estimation of frequentist and hierarchical Bayesian posterior mean.
 
-```{r compare-scatter}
+```{r compare-scatter, cache=T}
 res.df %>% 
   # filter(alpha.nls < 2) %>%
   ggplot(aes(x=alpha.nls, y=alpha.bayes.mean)) +
@@ -448,7 +452,7 @@ ggsave("./result/compare/compare-beta-post_median_nls.png")
 
 Next, we plot each subjects' $x^-_8, ..., x^+_8$ and the two fitting results (non-linear least square and hierarchical Bayesian).
 
-```{r plot-point-and-models}
+```{r plot-point-and-models, cache=T}
 for (i in res.df$subj_id) {
   par <- c(
     res.df$alpha.nls[i], res.df$beta.nls[i],
@@ -504,7 +508,7 @@ for (i in res.df$subj_id) {
       alpha=.5, xlim = c(-1, 0)
     ) +
     labs(
-      title = paste("Subject:", dat.all$subject[i]),
+      title = paste("Subject:", res.df$subject[i]),
       y="U(x)"
     ) +
     # define color
@@ -515,7 +519,7 @@ for (i in res.df$subj_id) {
     ) +
     theme_light())
   # print(subj.plot)
-  save.plot(4, c("subject_plot", dat.all$subject[i]))
+  save.plot(4, c("subject_plot", res.df$subject[i]))
 }
 
 rm(subj.plot)
