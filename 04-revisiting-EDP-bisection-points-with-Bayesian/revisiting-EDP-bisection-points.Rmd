@@ -63,13 +63,15 @@ dat.long <- dat %>%
   pivot_longer(starts_with("x"), names_to = "x.type", values_to = "x") %>% 
   mutate(
     subject = as.factor(subject),
-    sign = sign(x),
-    y = as.integer(substr(x.type, 2, 2)) / 8 * sign  # set U for different X
+    sign.x = sign(x)
   ) %>% 
-  group_by(subject, sign) %>% 
-  mutate(x = x / max(abs(x))) %>% 
+  group_by(subject, sign.x) %>% 
+  mutate(
+    x = x / max(abs(x)),
+    y = seq(1/8, 1, 1/8) * sign.x
+  ) %>% 
   ungroup() %>% 
-  select(-c(x.type, sign)) %>% 
+  select(-sign.x) %>%
   rename(subj_id = index)
 
 dat.long %>% head(10)
@@ -88,15 +90,9 @@ y=
 \end{cases}
 $$
 
-```{r set-model}
-value_func.model <- cmdstan_model("./model/power_value_func.stan")
-value_func.model$check_syntax()
-# print(value_func.model)
-```
+We specified the input data for model.
 
-We specified the input data for model and started fitting.
-
-```{r mcmc-fitting, cache=T}
+```{r mcmc-data-prepare, cache=T}
 dat.pos <- dat.long %>% 
   filter(x >= 0)
 dat.neg <- dat.long %>%
@@ -112,8 +108,15 @@ dat.list <- list(
   x_pos = dat.pos$x,
   y_pos = dat.pos$y,
   x_neg = dat.neg$x,
-  y_neg = dat.neg$y
+  y_neg = -dat.neg$y
 )
+```
+
+
+
+```{r MCMC}
+value_func.model <- cmdstan_model("./model/power_value_func_y-fixed.stan")
+value_func.model$check_syntax()
 
 value_func.fit <- value_func.model$sample(
   data = dat.list,
@@ -130,7 +133,7 @@ The fitting result is listed below.
 
 ```{r mcmc-summary}
 param <- c(
-  "mu_alpha", "mu_beta", "tau_alpha", "tau_beta", "sigma",
+  # "mu_log_alpha_inverse", "mu_log_beta", "tau_log_alpha", "tau_log_beta", "sigma",
   paste0("alpha[", 1:J, "]"), paste0("beta[", 1:J, "]")
 )
 value_func.summary <- value_func.fit$summary(variables = param)
@@ -164,21 +167,21 @@ save.plot <- function(plot.type=1, name) {
   ggsave(file.name)
 }
 
-value_func.draw <- readRDS("./result/fitting/draws.rds")
+# value_func.draw <- readRDS("./result/fitting/draws.rds")
 # group-level parameters
-mcmc_trace(value_func.draw, pars=param[1:5]) +
-  labs(title = "Trace Plot of Group-Level Parameters") +
-  scale_x_continuous(
-    name = "Number of iterations (1000)",
-    labels = scales::label_comma(scale = 1/1000)
-  ) +
-  theme_light()
-save.plot(1, "trace_plot-grp_param")
+# mcmc_trace(value_func.draw, pars=param[1:5]) +
+  # labs(title = "Trace Plot of Group-Level Parameters") +
+  # scale_x_continuous(
+    # name = "Number of iterations (1000)",
+    # labels = scales::label_comma(scale = 1/1000)
+  # ) +
+  # theme_light()
+# save.plot(1, "trace_plot-grp_param")
 
 # individual alphas
 for (j in 1:5) {
-  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 5)
-  par.range <- range(par.index) - 5
+  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)])
+  par.range <- range(par.index)
   trace.plot <- mcmc_trace(value_func.draw, pars=param[par.index]) +
     scale_x_continuous(
       name = "Number of iterations (1000)",
@@ -190,13 +193,13 @@ for (j in 1:5) {
     )) +
     theme_light()
   print(trace.plot)
-  save.plot(1, name=c("trace_plot-ind_alpha", par.range[1], par.range[2]))
+  save.plot(1, name=c("trace_plot-ind_alpha", par.range[1], par.range[2], "y-fixed"))
 }
 
 # individual betas
 for (j in 1:5) {
-  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 5 + 87)
-  par.range <- range(par.index) - 5 - 87
+  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 87)
+  par.range <- range(par.index) - 87
   trace.plot <- mcmc_trace(value_func.draw, pars=param[par.index]) +
     scale_x_continuous(
       name = "Number of iterations (1000)",
@@ -208,7 +211,7 @@ for (j in 1:5) {
     )) +
     theme_light()
   print(trace.plot)
-  save.plot(1, name=c("trace_plot-ind_beta", par.range[1], par.range[2]))
+  save.plot(1, name=c("trace_plot-ind_beta", par.range[1], par.range[2], "y-fixed"))
 }
 
 rm(trace.plot)
@@ -218,15 +221,15 @@ And we checked if the posterior distribution of each parameters at the 4 chains 
 
 ```{r posterior-dist, cache=T}
 # group-level
-mcmc_dens_overlay(value_func.draw, pars = param[1:5]) +
-  labs(title = "Posterior Distributions of Group-Level Parameters") +
-  theme_light()
-save.plot(2, c("posterior", "grp_param"))
+# mcmc_dens_overlay(value_func.draw, pars = param[1:5]) +
+  # labs(title = "Posterior Distributions of Group-Level Parameters") +
+  # theme_light()
+# save.plot(2, c("posterior", "grp_param"))
 
 # individual alphas
 for (j in 1:5) {
-  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 5)
-  par.range <- range(par.index) - 5
+  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)])
+  par.range <- range(par.index)
   post.dens <- mcmc_dens_overlay(value_func.draw, pars=param[par.index]) +
     labs(title = paste(
       "Posterior Distributions of Individual Alpha: Subject", 
@@ -234,13 +237,13 @@ for (j in 1:5) {
     )) +
     theme_light()
   print(post.dens)
-  save.plot(2, name=c("posterior", "ind_alpha", par.range[1], par.range[2]))
+  save.plot(2, name=c("posterior", "ind_alpha", par.range[1], par.range[2], "y-fixed"))
 }
 
 # individual betas
 for (j in 1:5) {
-  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 5 + 87)
-  par.range <- range(par.index) - 5 - 87
+  par.index <- na.omit((1:87)[(18 * j - 17):(18 * j)] + 87)
+  par.range <- range(par.index) - 87
   post.dens <- mcmc_dens_overlay(value_func.draw, pars=param[par.index]) +
     labs(title = paste(
       "Posterior Distributions of Individual Beta: Subject", 
@@ -248,7 +251,7 @@ for (j in 1:5) {
     )) +
     theme_light()
   print(post.dens)
-  save.plot(2, name=c("posterior", "ind_beta", par.range[1], par.range[2]))
+  save.plot(2, name=c("posterior", "ind_beta", par.range[1], par.range[2], "y-fixed"))
 }
 
 rm(post.dens)
@@ -261,10 +264,9 @@ value_func.summary %>%
   select(c(variable, rhat, starts_with("ess"))) %>% 
   # filter(rhat == max(rhat))
   # filter(ess_bulk == min(ess_bulk))
-  filter(ess_tail == min(ess_tail))
+  # filter(ess_tail == min(ess_tail))
 ```
 
-The parameter `mu_alpha` has the highest $\hat R$, the lowest bulk and tail effective sample size.
 
 Finally, we store the posterior mean and median to a data frame.
 
@@ -275,10 +277,10 @@ res.df <- dat %>%
     subject = subject,
     alpha.index = paste0("alpha[", index, "]"),
     beta.index = paste0("beta[", index, "]"),
-    alpha.bayes.mean = value_func.summary[6:92, 2][[1]],
-    beta.bayes.mean = value_func.summary[93:179, 2][[1]],
-    alpha.bayes.median = value_func.summary[6:92, 3][[1]],
-    beta.bayes.median = value_func.summary[93:179, 3][[1]],
+    alpha.bayes.mean = value_func.summary[1:87, 2][[1]],
+    beta.bayes.mean = value_func.summary[88:174, 2][[1]],
+    alpha.bayes.median = value_func.summary[1:87, 3][[1]],
+    beta.bayes.median = value_func.summary[88:174, 3][[1]],
     alpha.nls = NA,
     beta.nls = NA
   )
@@ -289,6 +291,12 @@ res.df %>% head(10)
 
 ## Re-fit Non-Linear Power
 
+Since $x$ are fixed by the experiment design, the loss function should be
+
+$$
+\sum_{i=1}^{16}(x_i - y_i^{1/\alpha}).
+$$
+
 ```{r nls}
 for (j in dat$index) {
   # fit non-linear least square
@@ -296,18 +304,26 @@ for (j in dat$index) {
     filter(subj_id == j)
   dat.neg.cur <- dat.neg %>% 
     filter(subj_id == j)
-  res.alpha <- nls(y ~ x^alpha, dat.pos.cur, start=list(alpha=0)) %>% coef(F)
-  res.beta <- nls(y ~ -x^beta, dat.neg.cur, start=list(beta=0)) %>% coef(F)
+  # res.alpha <- nls(y ~ x^alpha, dat.pos.cur, start=list(alpha=0)) %>% coef(F)  # x fixed
+  res.alpha <- nls(
+    x ~ y^(1/alpha), dat.pos.cur, 
+    start=list(alpha=.01), control=list("maxiter"=100)
+  ) %>% coef(F)  # y fixed
+  # res.beta <- nls(y ~ -x^beta, dat.neg.cur, start=list(beta=0)) %>% coef(F)  # x fixed
+  res.beta <- nls(
+    x ~ (-y)^(1/beta), dat.neg.cur, 
+    start=list(beta=.01), control=list("maxiter"=100)
+  ) %>% coef(F)  # y fixed
   
   # store the result
   res.df[j, 9:10] <- c(res.alpha, res.beta)
 }
 
-rm(dat.pos.cur, dat.neg.cur)
+rm(dat.pos.cur, dat.neg.cur, res.alpha, res.beta)
 
 sum(is.na(res.df$alpha.nls), is.na(res.df$beta.nls))  # 0: no na, all fitted
 
-# res.df %>% write.csv("./result/estimation-nls-HB.csv", row.names = F)
+# res.df %>% write.csv("./result/estimation-nls-HB_y-fixed.csv", row.names = F)
 res.df %>% head(10)
 ```
 
@@ -318,24 +334,24 @@ We plot the interval estimations of hierarchical Bayesian, and add the nls estim
 
 ```{r compare-intervals, cache=T}
 # group-level
-mcmc_intervals(
-  value_func.draw, pars = param[1:5], 
-  point_est="mean", prob=.68, prob_outer = .95
-) +
-  labs(title = "Interval Estimations of Group-level Parameters") +
-  theme_light()
-save.plot(3, c("interval", "grp_param"))
+# mcmc_intervals(
+#   value_func.draw, pars = param[1:5], 
+#   point_est="mean", prob=.68, prob_outer = .95
+# ) +
+#   labs(title = "Interval Estimations of Group-level Parameters") +
+#   theme_light()
+# save.plot(3, c("interval", "grp_param"))
 
 # individual alphas
 for (j in 1:3) {
-  par.index <- na.omit((1:87)[(29 * j - 28):(29 * j)] + 5)
-  par.range <- range(par.index) - 5
+  par.index <- na.omit((1:87)[(29 * j - 28):(29 * j)])
+  par.range <- range(par.index)
   inter.est <- mcmc_intervals(
     value_func.draw, pars = param[par.index], 
     point_est="mean", prob=.68, prob_outer = .95
   ) +
     geom_point(
-      data = res.df[par.index - 5, ],
+      data = res.df[par.index, ],
       aes(x=alpha.nls, y=alpha.index),
       color = "pink", size=3, alpha=.7
     ) +
@@ -345,19 +361,19 @@ for (j in 1:3) {
     )) +
     theme_light()
   print(inter.est)
-  save.plot(3, name=c("interval", "ind_alpha", par.range[1], par.range[2]))
+  save.plot(3, name=c("interval", "ind_alpha", par.range[1], par.range[2], "y-fixed"))
 }
 
 # individual betas
 for (j in 1:3) {
-  par.index <- na.omit((1:87)[(29 * j - 28):(29 * j)] + 5 + 87)
-  par.range <- range(par.index) - 5 - 87
+  par.index <- na.omit((1:87)[(29 * j - 28):(29 * j)] + 87)
+  par.range <- range(par.index) - 87
   inter.est <- mcmc_intervals(
     value_func.draw, pars = param[par.index], 
     point_est="mean", prob=.68, prob_outer = .95
   ) +
     geom_point(
-      data = res.df[par.index - 5 - 87, ],
+      data = res.df[par.index - 87, ],
       aes(x=beta.nls, y=beta.index),
       color = "pink", size=3, alpha=.7
     ) +
@@ -367,7 +383,7 @@ for (j in 1:3) {
     )) +
     theme_light()
   print(inter.est)
-  save.plot(3, name=c("interval", "ind_beta", par.range[1], par.range[2]))
+  save.plot(3, name=c("interval", "ind_beta", par.range[1], par.range[2], "y-fixed"))
 }
 
 rm(inter.est)
@@ -519,7 +535,7 @@ for (i in res.df$subj_id) {
     ) +
     theme_light())
   # print(subj.plot)
-  save.plot(4, c("subject_plot", res.df$subject[i]))
+  save.plot(4, c("subject_plot", res.df$subject[i], "y_fixed"))
 }
 
 rm(subj.plot)
