@@ -340,7 +340,7 @@ experiment = function(params) {  # Given player's attribute
 ```
 
 ```{r test-experiment}
-experiment(c(.88, .88, 1, .03))
+experiment(c(0.576049517, 1.249581918, 1, .0367))
 ```
 
 
@@ -349,7 +349,7 @@ experiment(c(.88, .88, 1, .03))
 $\alpha\in[0, 2], \beta \in [0, 2], \phi \in \{0.367, 0.0367, 0.00367\}.$
 
 ```{r parameter-space}
-dat <- crossing(
+pars.df <- crossing(
   alpha = seq(.1, 2, .03),
   beta = seq(.1, 2, .03), 
   lambda = 1,
@@ -359,9 +359,9 @@ dat <- crossing(
   relocate(subj_id) %>% 
   as.data.frame()
 
-# dat %>% write.csv("../01-data/generated_data/subject_alpha-beta-phi.csv", row.names=F)
-# dat <- read.csv("../01-data/generated_data/subject_alpha-beta-phi.csv")
-dat %>% head()
+# pars.df %>% write.csv("../01-data/generated_data/subject_alpha-beta-phi.csv", row.names=F)
+# pars.df <- read.csv("../01-data/generated_data/subject_alpha-beta-phi.csv")
+pars.df %>% head()
 ```
 
 
@@ -371,18 +371,18 @@ dat %>% head()
 
 ```{r simulation, cache=T}
 # initialize a df to store experiment results for all the subjects
-res.df <- data.frame()
+dat.exp <- data.frame()
 log.path <- "./../01-data/generated_data/experiment-log/log_"
 material.path <- "./../01-data/generated_data/experiment-material/material_"
 
-for (subj in dat$subj_id) {
-  pars <- dat[subj, 2:5] %>% 
+for (subj in pars.df$subj_id) {
+  pars <- pars.df[subj, 2:5] %>% 
     unlist %>% 
     unname
   res <- experiment(pars)
   
   # store the result
-  res.df <- rbind(res.df, res$points)
+  dat.exp <- rbind(dat.exp, res$points)
   file.name <- paste0( 
     "subj-", subj, 
     "_alpha-", res$pars[[1]], 
@@ -394,10 +394,61 @@ for (subj in dat$subj_id) {
   res$material %>% write.csv(paste0(material.path, file.name), row.names=F)
 }
 
-# res.df %>% write.csv("../01-data/generated_data/simulation-result.csv", row.names=F)
-res.df %>% str()
+# dat.exp %>% write.csv("../01-data/generated_data/simulation-result.csv", row.names=F)
+dat.exp %>% str()
 ```
 
 
+## 5. Non-Linear Least Square Estimation
 
+開始估計前，先整理資料。
+
+```{r data-arrange}
+dat.long <- dat.exp %>% 
+  mutate(subj_id = row_number(), .before=1) %>% 
+  pivot_longer(starts_with("x"), names_to = "x.type", values_to = "x") %>% 
+  # mutate(
+    # sign = sign(x),
+    # y = (as.integer(substr(x.type, 2, 2)) / 8) * sign  # set U for different X
+  # ) %>% 
+  group_by(subj_id) %>% 
+  mutate(
+    y = c((1:8)/8, (1:8)/(-8)),
+    x = x / max(abs(x))
+  ) %>% 
+  ungroup()
+
+dat.long %>% head(10)
+```
+
+但是資料中有 NA 產生，故
+
+```{r nls}
+est.res <- pars.df %>% 
+  mutate(
+    alpha.index = paste0("alpha[", subj_id, "]"),
+    beta.index = paste0("beta[", subj_id, "]"),
+    alpha.bayes.mean = NA,
+    beta.bayes.mean = NA,
+    alpha.bayes.median = NA,
+    beta.bayes.median = NA,
+    alpha.nls = NA,
+    beta.nls = NA
+  )
+
+for (j in dat.exp$index) {
+  # fit non-linear least square
+  dat.pos.cur <- dat.pos %>% 
+    filter(subj_id == j)
+  dat.neg.cur <- dat.neg %>% 
+    filter(subj_id == j)
+  res.alpha <- nls(y ~ x^alpha, dat.pos.cur, start=list(alpha=0)) %>% coef(F)
+  res.beta <- nls(y ~ -x^beta, dat.neg.cur, start=list(beta=0)) %>% coef(F)
+  
+  # store the result
+  res.df[j, 9:10] <- c(res.alpha, res.beta)
+}
+
+rm(dat.pos.cur, dat.neg.cur)
+```
 
